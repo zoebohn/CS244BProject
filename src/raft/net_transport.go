@@ -416,6 +416,7 @@ func (n *NetworkTransport) listen() {
 		conn, err := n.stream.Accept()
 		if err != nil {
 			if n.IsShutdown() {
+                n.logger.Printf("Shutting down")
 				return
 			}
 			n.logger.Printf("[ERR] raft-net: Failed to accept connection: %v", err)
