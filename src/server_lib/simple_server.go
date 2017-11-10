@@ -62,6 +62,7 @@ func CreateNetworkedCluster() {
 	WaitFor(env1, raft.Leader)
 
 	// Join a few nodes!
+    // Can't make client requests and get error when this is commented in!
 	/*var envs []*RaftEnv
 	for i := 0; i < 4; i++ {
 		conf.LocalID = raft.ServerID(fmt.Sprintf("next-batch-%d", i))
@@ -167,46 +168,3 @@ func (r *RaftEnv) Shutdown() {
 	r.trans.Close()
 }
 
-type cluster struct {
-	dirs             []string
-	stores           []*raft.InmemStore
-	fsms             []*simpleFSM
-	snaps            []*raft.FileSnapshotStore
-	trans            []*raft.NetworkTransport
-	rafts            []*raft.Raft
-	observationCh    chan raft.Observation
-	conf             *raft.Config
-	propagateTimeout time.Duration
-	longstopTimeout  time.Duration
-	logger           *log.Logger
-	startTime        time.Time
-
-	failedLock sync.Mutex
-	failedCh   chan struct{}
-	failed     bool
-}
-
-func (c *cluster) Close() {
-	var futures []raft.Future
-	for _, r := range c.rafts {
-		futures = append(futures, r.Shutdown())
-	}
-
-	// Wait for shutdown
-	limit := time.AfterFunc(c.longstopTimeout, func() {
-		// We can't FailNowf here, and c.Failf won't do anything if we
-		// hang, so panic.
-		panic("timed out waiting for shutdown")
-	})
-	defer limit.Stop()
-
-	for _, f := range futures {
-		if err := f.Error(); err != nil {
-			fmt.Println("Error with shutdown\n")	
-		}
-	}
-
-	for _, d := range c.dirs {
-		os.RemoveAll(d)
-	}
-}
