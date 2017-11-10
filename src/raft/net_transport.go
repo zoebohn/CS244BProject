@@ -18,6 +18,8 @@ const (
 	rpcAppendEntries uint8 = iota
 	rpcRequestVote
 	rpcInstallSnapshot
+    rpcClientRequest
+    rpcClientResponse
 
 	// DefaultTimeoutScale is the default TimeoutScale in a NetworkTransport.
 	DefaultTimeoutScale = 256 * 1024 // 256KB
@@ -496,6 +498,13 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, en
 		}
 		rpc.Command = &req
 		rpc.Reader = io.LimitReader(r, req.Size)
+
+    case rpcClientRequest:
+        var req ClientRequest
+        if err := dec.Decode(&req); err != nil {
+            return err
+        }
+        rpc.Command = &req
 
 	default:
 		return fmt.Errorf("unknown rpc type %d", rpcType)

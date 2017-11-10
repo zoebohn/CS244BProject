@@ -145,6 +145,20 @@ type InstallSnapshotResponse struct {
 	Success bool
 }
 
+type ClientRequest struct {
+    // TODO: Add RPCHeader
+
+    // New entries to commit. 
+    Entries[] *Log
+}
+
+type ClientResponse struct {
+    // TODO: Add RPCHeader
+
+    Success bool
+    LeaderAddress ServerAddress
+}
+
 // See WithRPCHeader.
 func (r *InstallSnapshotResponse) GetRPCHeader() RPCHeader {
 	return r.RPCHeader

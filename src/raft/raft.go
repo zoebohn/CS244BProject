@@ -955,7 +955,9 @@ func (r *Raft) processRPC(rpc RPC) {
 		r.requestVote(rpc, cmd)
 	case *InstallSnapshotRequest:
 		r.installSnapshot(rpc, cmd)
-	default:
+    case *ClientRequest:
+        r.clientRequest(rpc, cmd)
+    default:
 		r.logger.Printf("[ERR] raft: Got unexpected command: %#v", rpc.Command)
 		rpc.Respond(nil, fmt.Errorf("unexpected command"))
 	}
@@ -1349,6 +1351,19 @@ func (r *Raft) installSnapshot(rpc RPC, req *InstallSnapshotRequest) {
 	resp.Success = true
 	r.setLastContact()
 	return
+}
+
+func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
+    r.logger.Printf("SUCCESSFULLY SENT CLIENT REQUEST")
+    resp := &ClientResponse{
+        Success : true,
+        LeaderAddress : "test-server-addr",
+    }
+    // Can add real stuff to error when actually fill this in to do interesting stuff.
+    var rpcErr error
+    defer func() {
+        rpc.Respond(resp, rpcErr)
+    }()
 }
 
 // setLastContact is used to set the last contact time to now

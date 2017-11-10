@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
-	"net"
+    "raft"
 )
 
 func main() {
 	fmt.Println("Hello world")
-	conn, err := net.Dial("tcp", "127.0.0.1:50639")
-	if err != nil {
-		fmt.Println("uh oh...")
-	}
-	fmt.Fprintf(conn, "Hello from Emma and Zoe!")
+    var resp raft.ClientResponse
+    err := raft.MakeClientRequest("127.0.0.1:59310", nil, 10, &resp)
+    if err != nil {
+        fmt.Println("error %v", err)
+    }
+    fmt.Println("done")
 }
