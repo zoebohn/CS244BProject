@@ -254,7 +254,7 @@ func (n *NetworkTransport) getPooledConn(target ServerAddress) *netConn {
 // getConnFromAddressProvider returns a connection from the server address provider if available, or defaults to a connection using the target server address
 func (n *NetworkTransport) getConnFromAddressProvider(id ServerID, target ServerAddress) (*netConn, error) {
 	address := n.getProviderAddressOrFallback(id, target)
-	return n.getConn(address)
+    return n.getConn(address)
 }
 
 func (n *NetworkTransport) getProviderAddressOrFallback(id ServerID, target ServerAddress) ServerAddress {
@@ -281,6 +281,7 @@ func (n *NetworkTransport) getConn(target ServerAddress) (*netConn, error) {
 	if err != nil {
 		return nil, err
 	}
+    n.logger.Printf("successfully dialed, %v, %v", conn.RemoteAddr(), conn.LocalAddr())
 
 	// Wrap the conn
 	netConn := &netConn{
@@ -414,9 +415,11 @@ func (n *NetworkTransport) DecodePeer(buf []byte) ServerAddress {
 // listen is used to handling incoming connections.
 func (n *NetworkTransport) listen() {
 	for {
-		// Accept incoming connections
+        n.logger.Printf("listening at %v", n.stream.Addr())
+        // Accept incoming connections
 		conn, err := n.stream.Accept()
-		if err != nil {
+		n.logger.Printf("ACCEPT")
+        if err != nil {
 			if n.IsShutdown() {
                 n.logger.Printf("Shutting down")
 				return
@@ -429,6 +432,7 @@ func (n *NetworkTransport) listen() {
 		// Handle the connection in dedicated routine
 		go n.handleConn(conn)
 	}
+    n.logger.Printf("exiting listen")
 }
 
 // handleConn is used to handle an inbound connection for its lifespan.
@@ -455,7 +459,7 @@ func (n *NetworkTransport) handleConn(conn net.Conn) {
 
 // handleCommand is used to decode and dispatch a single command.
 func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, enc *codec.Encoder) error {
-	// Get the rpc type
+    // Get the rpc type
 	rpcType, err := r.ReadByte()
 	if err != nil {
 		return err

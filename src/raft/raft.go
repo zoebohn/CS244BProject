@@ -948,7 +948,7 @@ func (r *Raft) processRPC(rpc RPC) {
 		return
 	}
 
-	switch cmd := rpc.Command.(type) {
+    switch cmd := rpc.Command.(type) {
 	case *AppendEntriesRequest:
 		r.appendEntries(rpc, cmd)
 	case *RequestVoteRequest:

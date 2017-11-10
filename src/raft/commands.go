@@ -145,15 +145,25 @@ type InstallSnapshotResponse struct {
 	Success bool
 }
 
+// See WithRPCHeader.
+func (r *ClientRequest) GetRPCHeader() RPCHeader {
+	return r.RPCHeader
+}
+
 type ClientRequest struct {
-    // TODO: Add RPCHeader
+    RPCHeader
 
     // New entries to commit. 
     Entries[] *Log
 }
 
+// See WithRPCHeader.
+func (r *ClientResponse) GetRPCHeader() RPCHeader {
+	return r.RPCHeader
+}
+
 type ClientResponse struct {
-    // TODO: Add RPCHeader
+    RPCHeader
 
     Success bool
     LeaderAddress ServerAddress

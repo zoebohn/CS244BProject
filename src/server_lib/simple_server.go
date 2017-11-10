@@ -40,7 +40,8 @@ func (s *simpleSnapshot) Release() {
 func main() {
 
 	CreateNetworkedCluster()
-	for {}
+	fmt.Println("returned")
+    for {}
 	// Start a raft instance(s) using simple FSM (newRaftInstance??)
 	// run it on port 8000 and have client connect
 	// try to print hello world message.	
@@ -61,14 +62,14 @@ func CreateNetworkedCluster() {
 	WaitFor(env1, raft.Leader)
 
 	// Join a few nodes!
-	var envs []*RaftEnv
+	/*var envs []*RaftEnv
 	for i := 0; i < 4; i++ {
 		conf.LocalID = raft.ServerID(fmt.Sprintf("next-batch-%d", i))
 		env := MakeRaft(conf, false)
 		addr := env.trans.LocalAddr()
 		env1.raft.AddVoter(conf.LocalID, addr, 0, 0)
 		envs = append(envs, env)
-	}
+	}*/
 }
 
 func MakeRaft(conf *raft.Config, bootstrap bool) *RaftEnv {
@@ -97,7 +98,7 @@ func MakeRaft(conf *raft.Config, bootstrap bool) *RaftEnv {
 		fsm:      &simpleFSM{},
 		logger:	  log.New(os.Stdout, "", log.Lmicroseconds),
 	}
-	trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
 	if err != nil {
 		fmt.Println("err: %v", err)
 	}
