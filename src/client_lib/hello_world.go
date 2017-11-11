@@ -8,7 +8,7 @@ import (
 func main() {
 	fmt.Println("Hello world")
     var resp raft.ClientResponse
-    err := raft.MakeClientRequest("127.0.0.1:54649", nil, 10, &resp)
+    err := raft.MakeClientRequest("127.0.0.1:55044", nil, 10, &resp)
     if err != nil {
         fmt.Println("error %v", err)
     }
