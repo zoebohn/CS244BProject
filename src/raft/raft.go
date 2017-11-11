@@ -1355,12 +1355,31 @@ func (r *Raft) installSnapshot(rpc RPC, req *InstallSnapshotRequest) {
 
 func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     r.logger.Printf("SUCCESSFULLY SENT CLIENT REQUEST")
+    leader := r.Leader()
     resp := &ClientResponse{
-        Success : true,
-        LeaderAddress : "test-server-addr",
+        Success : false,
+        LeaderAddress : leader,
     }
-    // Can add real stuff to error when actually fill this in to do interesting stuff.
+    // Have we contacted the leader?
     var rpcErr error
+    if (r.getState() == Leader) {
+        // Put in applyCh
+        // TODO: need to block until these are all committed, use response?
+        // might need to respond with ErrLeadershipLost
+        for _,entry := range(c.Entries) {
+            entryFuture := logFuture {
+                log: *entry,
+                response: nil, // should this be something else?
+                dispatch: time.Now(),
+            }
+            r.applyCh <- &entryFuture
+        }
+        rpcErr = nil
+        resp.Success = true
+    } else {
+        rpcErr = ErrNotLeader
+        resp.Success = false
+    }
     defer func() {
         rpc.Respond(resp, rpcErr)
     }()

@@ -7,8 +7,10 @@ import(
 	"io/ioutil"
 	"time"
 	"log"
-	"sync"
 	"os"
+    /*"bufio"
+    "strconv"
+    "os/signal"*/
 )
 
 type simpleFSM struct{
@@ -39,15 +41,19 @@ func (s *simpleSnapshot) Release() {
 
 func main() {
 
-	CreateNetworkedCluster()
-	fmt.Println("returned")
+    CreateNetworkedCluster()
     for {}
-	// Start a raft instance(s) using simple FSM (newRaftInstance??)
-	// run it on port 8000 and have client connect
-	// try to print hello world message.	
 }
 
-func CreateNetworkedCluster() {
+// This isn't really getting called with ctrl-c so probs not worth it.
+func release(envs []*RaftEnv) {
+    fmt.Println("releasing connections")
+    for _, e := range envs {
+        e.Release()
+    }
+}
+
+func CreateNetworkedCluster() []*RaftEnv{
 	conf := raft.DefaultConfig()
 	conf.LocalID = raft.ServerID("first")
 	conf.HeartbeatTimeout = 50 * time.Millisecond
@@ -57,23 +63,26 @@ func CreateNetworkedCluster() {
 	conf.SnapshotThreshold = 100
 	conf.TrailingLogs = 10
 
+	var envs []*RaftEnv
+
 	// Create a single node
-	env1 := MakeRaft(conf, true)
+	env1 := MakeRaft(conf, true, 0)
 	WaitFor(env1, raft.Leader)
+    envs = append(envs, env1)
 
 	// Join a few nodes!
     // Can't make client requests and get error when this is commented in!
-	/*var envs []*RaftEnv
-	for i := 0; i < 4; i++ {
+	/*for i := 0; i < 2; i++ {
 		conf.LocalID = raft.ServerID(fmt.Sprintf("next-batch-%d", i))
-		env := MakeRaft(conf, false)
+		env := MakeRaft(conf, false, i+1)
 		addr := env.trans.LocalAddr()
 		env1.raft.AddVoter(conf.LocalID, addr, 0, 0)
 		envs = append(envs, env)
 	}*/
+    return envs
 }
 
-func MakeRaft(conf *raft.Config, bootstrap bool) *RaftEnv {
+func MakeRaft(conf *raft.Config, bootstrap bool, num int) *RaftEnv {
 	// Set the config
 	if conf == nil {
 		conf = raft.DefaultConfig()
@@ -91,19 +100,26 @@ func MakeRaft(conf *raft.Config, bootstrap bool) *RaftEnv {
 		fmt.Println("err: %v", err)
 	}
 
+   /*file, err := os.Create("log_" + strconv.Itoa(num))
+   if err != nil {
+       fmt.Println("err: %v", err)
+   }
+   writer := bufio.NewWriter(file)
+   */
+
 	env := &RaftEnv{
 		conf:     conf,
 		dir:      dir,
 		store:    stable,
 		snapshot: snap,
 		fsm:      &simpleFSM{},
-		logger:	  log.New(os.Stdout, "", log.Lmicroseconds),
+		logger:	  log.New(os.Stdout/*writer*/, "", log.Lmicroseconds),
 	}
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
 	if err != nil {
 		fmt.Println("err: %v", err)
 	}
-	env.logger = log.New(os.Stdout, string(trans.LocalAddr())+" :", log.Lmicroseconds)
+	env.logger = log.New(os.Stdout/*writer*/, string(trans.LocalAddr())+" :", log.Lmicroseconds)
 	env.trans = trans
 
 	if bootstrap {
