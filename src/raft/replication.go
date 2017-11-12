@@ -337,12 +337,15 @@ func (r *Raft) heartbeat(s *followerReplication, stopCh chan struct{}) {
 	var resp AppendEntriesResponse
 	for {
 		// Wait for the next heartbeat interval or forced notify
-		select {
+        r.logger.Printf("%v to %v",time.Now(), s.peer.ID)
+        select {
 		case <-s.notifyCh:
 		case <-randomTimeout(r.conf.HeartbeatTimeout / 10):
 		case <-stopCh:
+            fmt.Println("stop channel")
 			return
 		}
+        r.logger.Printf("after select")
 
 		start := time.Now()
 		if err := r.trans.AppendEntries(s.peer.ID, s.peer.Address, &req, &resp); err != nil {
@@ -359,6 +362,7 @@ func (r *Raft) heartbeat(s *followerReplication, stopCh chan struct{}) {
 			s.notifyAll(resp.Success)
 		}
 	}
+    fmt.Println("outside for loop? why??")
 }
 
 // pipelineReplicate is used when we have synchronized our state with the follower,

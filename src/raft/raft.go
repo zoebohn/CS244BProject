@@ -173,7 +173,8 @@ func (r *Raft) runFollower() {
 			b.respond(r.liveBootstrap(b.configuration))
 
 		case <-heartbeatTimer:
-			// Restart the heartbeat timer
+			r.logger.Printf("might be trying to start election")
+            // Restart the heartbeat timer
 			heartbeatTimer = randomTimeout(r.conf.HeartbeatTimeout)
 
 			// Check if we have had a successful contact
@@ -182,6 +183,7 @@ func (r *Raft) runFollower() {
 				continue
 			}
 
+            r.logger.Printf("candidate now")
 			// Heartbeat failed! Transition to the candidate state
 			lastLeader := r.Leader()
 			r.setLeader("")

@@ -8,9 +8,7 @@ import(
 	"time"
 	"log"
 	"os"
-    /*"bufio"
-    "strconv"
-    "os/signal"*/
+    "os/signal"
 )
 
 type simpleFSM struct{
@@ -41,7 +39,9 @@ func (s *simpleSnapshot) Release() {
 
 func main() {
     makeCluster(3)
-    for {}
+    c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
 }
 
 func makeCluster(n int) *cluster {
@@ -73,16 +73,17 @@ func makeCluster(n int) *cluster {
 	    snap, err := raft.NewFileSnapshotStore(dir, 3, nil)
 		c.snaps = append(c.snaps, snap)
 
-		trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
-		if err != nil {
+        trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+        if err != nil {
             fmt.Println("err: %v", err)
         }
+        addr := trans.LocalAddr()
         c.trans = append(c.trans, trans)
-		localID := raft.ServerID(fmt.Sprintf("server-%s", trans.LocalAddr()))
+		localID := raft.ServerID(fmt.Sprintf("server-%s", addr))
 		configuration.Servers = append(configuration.Servers, raft.Server{
 			Suffrage: raft.Voter,
 			ID:       localID,
-			Address:  trans.LocalAddr(),
+			Address:  addr,
 		})
 	}
 
