@@ -173,7 +173,6 @@ func (r *Raft) runFollower() {
 			b.respond(r.liveBootstrap(b.configuration))
 
 		case <-heartbeatTimer:
-			r.logger.Printf("might be trying to start election")
             // Restart the heartbeat timer
 			heartbeatTimer = randomTimeout(r.conf.HeartbeatTimeout)
 
@@ -183,7 +182,6 @@ func (r *Raft) runFollower() {
 				continue
 			}
 
-            r.logger.Printf("candidate now")
 			// Heartbeat failed! Transition to the candidate state
 			lastLeader := r.Leader()
 			r.setLeader("")
@@ -504,7 +502,7 @@ func (r *Raft) leaderLoop() {
 
 		case <-r.leaderState.commitCh:
 			// Process the newly committed entries
-			oldCommitIndex := r.getCommitIndex()
+            oldCommitIndex := r.getCommitIndex()
 			commitIndex := r.leaderState.commitment.getCommitIndex()
 			r.setCommitIndex(commitIndex)
 
@@ -834,7 +832,7 @@ func (r *Raft) appendConfigurationEntry(future *configurationChangeFuture) {
 // dispatchLog is called on the leader to push a log to disk, mark it
 // as inflight and begin replication of it.
 func (r *Raft) dispatchLogs(applyLogs []*logFuture) {
-	now := time.Now()
+    now := time.Now()
 	defer metrics.MeasureSince([]string{"raft", "leader", "dispatchLog"}, now)
 
 	term := r.getCurrentTerm()
@@ -907,7 +905,7 @@ func (r *Raft) processLogs(index uint64, future *logFuture) {
 
 // processLog is invoked to process the application of a single committed log entry.
 func (r *Raft) processLog(l *Log, future *logFuture) {
-	switch l.Type {
+    switch l.Type {
 	case LogBarrier:
 		// Barrier is handled by the FSM
 		fallthrough
@@ -1369,12 +1367,15 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
         // TODO: need to block until these are all committed, use response?
         // might need to respond with ErrLeadershipLost
         for _,entry := range(c.Entries) {
-            entryFuture := logFuture {
-                log: *entry,
-                response: nil, // should this be something else?
-                dispatch: time.Now(),
-            }
-            r.applyCh <- &entryFuture
+            r.goFunc(func() {
+                f := r.Apply(entry.Data, 0) //TODO: change to configurable value
+                if f.Error() != nil {
+                    r.logger.Printf("err: %v",f.Error())
+                    rpcErr = f.Error()
+                    resp.Success = false
+                }
+            })
+            // TODO: might want to also extract response from f
         }
         rpcErr = nil
         resp.Success = true

@@ -51,7 +51,7 @@ func (r *Raft) runFSM() {
 
 	commit := func(req *commitTuple) {
 		// Apply the log if a command
-		var resp interface{}
+        var resp interface{}
 		if req.log.Type == LogCommand {
 			start := time.Now()
 			resp = r.fsm.Apply(req.log)

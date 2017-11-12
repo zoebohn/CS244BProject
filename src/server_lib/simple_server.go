@@ -18,8 +18,9 @@ type simpleSnapshot struct{
 }
 
 func (s *simpleFSM) Apply(log *raft.Log) interface{} {
-	fmt.Println(log.Data)
-	return nil
+	fmt.Println("CALLING APPLY")
+    fmt.Println(log.Data)
+	return 20
 }
 
 func (s *simpleFSM) Snapshot() (raft.FSMSnapshot, error) {
