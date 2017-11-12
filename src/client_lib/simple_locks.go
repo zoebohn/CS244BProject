@@ -5,14 +5,11 @@ import (
     "raft"
 )
 
-const LeaderAddr = "127.0.0.1:60612"
+const LeaderAddr = "127.0.0.1:49732"
 
 func main() {
     acquireLock()
-    acquireLock()
-    go releaseLock()
-    go releaseLock()
-    acquireLock()
+    releaseLock()
     fmt.Println("done")
 }
 

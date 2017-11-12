@@ -1364,28 +1364,25 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     var rpcErr error
     if (r.getState() == Leader) {
         // Put in applyCh
-        // TODO: need to block until these are all committed, use response?
-        // might need to respond with ErrLeadershipLost
-        for _,entry := range(c.Entries) {
-            r.goFunc(func() {
+        r.goFunc(func() {
+            // Serializing client requests, TODO paralellize
+            for _,entry := range(c.Entries) {
                 f := r.Apply(entry.Data, 0) //TODO: change to configurable value
                 if f.Error() != nil {
                     r.logger.Printf("err: %v",f.Error())
                     rpcErr = f.Error()
                     resp.Success = false
                 }
-            })
+                r.logger.Printf("returned")
+            }
+            rpc.Respond(resp, rpcErr)
             // TODO: might want to also extract response from f
-        }
-        rpcErr = nil
-        resp.Success = true
+        })
     } else {
         rpcErr = ErrNotLeader
         resp.Success = false
-    }
-    defer func() {
         rpc.Respond(resp, rpcErr)
-    }()
+    }
 }
 
 // setLastContact is used to set the last contact time to now

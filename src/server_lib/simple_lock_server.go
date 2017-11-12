@@ -18,6 +18,7 @@ type lockSnapshot struct{
 }
 
 func (l *lockFSM) Apply(log *raft.Log) interface{} {
+    fmt.Println("-->apply")
     if len(log.Data) < 1 {
         return nil
     }
