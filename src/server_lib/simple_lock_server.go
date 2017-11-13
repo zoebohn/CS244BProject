@@ -10,7 +10,7 @@ import(
 
 type lockFSM struct{
     locked bool
-    lockedCh chan bool
+    lockCh chan bool 
     waiter bool
 }
 
@@ -26,17 +26,17 @@ func (l *lockFSM) Apply(log *raft.Log) interface{} {
     if log.Data[0] == 0 {
         fmt.Println("***release***")
         l.locked = false
-        if (l.waiter) {
+        /*if (l.waiter) {
             l.lockedCh <- true
-        }
+        }*/
     }
     // Acquire
     if log.Data[0] == 1{
         fmt.Println("***acquire***")
-        if (l.locked) {
+        /*if (l.locked) {
             l.waiter = true
             <-l.lockedCh
-        }
+        }*/
         l.locked = true
     }
 	return nil

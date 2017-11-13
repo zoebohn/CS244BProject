@@ -5,7 +5,7 @@ import (
     "raft"
 )
 
-const LeaderAddr = "127.0.0.1:49732"
+const LeaderAddr = "127.0.0.1:50470"
 
 func main() {
     acquireLock()

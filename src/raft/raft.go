@@ -75,6 +75,11 @@ type commitTuple struct {
 	future *logFuture
 }
 
+type clientSession struct {
+    lastContact   time.Time
+    heartbeatCh   chan bool
+}
+
 // leaderState is state that is used while we are a leader.
 type leaderState struct {
 	commitCh   chan struct{}
@@ -83,6 +88,7 @@ type leaderState struct {
 	replState  map[ServerID]*followerReplication
 	notify     map[*verifyFuture]struct{}
 	stepDown   chan struct{}
+    clientSessions  map[string]*clientSession
 }
 
 // setLeader is used to modify the current leader of the cluster
@@ -1363,6 +1369,15 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     // Have we contacted the leader?
     var rpcErr error
     if (r.getState() == Leader) {
+        // Maintain sessions
+        if (c.KeepSession) {
+            _, ok := r.leaderState.clientSessions[c.ClientID]
+            // If first session, start heartbeat loop.
+            if !ok {
+                go r.clientSessionHeartbeatLoop(c.ClientID)
+            }
+            r.leaderState.clientSessions[c.ClientID].heartbeatCh <- true
+        }
         // Put in applyCh
         r.goFunc(func() {
             // Serializing client requests, TODO paralellize
@@ -1384,6 +1399,21 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
         rpc.Respond(resp, rpcErr)
     }
 }
+
+func (r *Raft) clientSessionHeartbeatLoop(clientID string) {
+    for {
+        select {
+        case <- r.leaderState.clientSessions[clientID].heartbeatCh:
+            r.leaderState.clientSessions[clientID].lastContact = time.Now()
+        case <- time.After(2*time.Second):
+            // TODO: do any notification for ending client session
+            // But only affects state if drops connection to leader.
+            delete(r.leaderState.clientSessions, clientID)
+            return
+        }
+    }
+}
+
 
 // setLastContact is used to set the last contact time to now
 func (r *Raft) setLastContact() {

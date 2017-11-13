@@ -146,7 +146,7 @@ type InstallSnapshotResponse struct {
 }
 
 // See WithRPCHeader.
-func (r *ClientRequest) GetRPCHeader() RPCHeader {
+func (r *InstallSnapshotResponse) GetRPCHeader() RPCHeader {
 	return r.RPCHeader
 }
 
@@ -155,10 +155,14 @@ type ClientRequest struct {
 
     // New entries to commit. 
     Entries[] *Log
+    // True if should initiate or maintain session, false otherwise.
+    KeepSession bool
+    // ID of client to contact raft server. 
+    ClientID string
 }
 
 // See WithRPCHeader.
-func (r *ClientResponse) GetRPCHeader() RPCHeader {
+func (r *ClientRequest) GetRPCHeader() RPCHeader {
 	return r.RPCHeader
 }
 
@@ -170,6 +174,6 @@ type ClientResponse struct {
 }
 
 // See WithRPCHeader.
-func (r *InstallSnapshotResponse) GetRPCHeader() RPCHeader {
+func (r *ClientResponse) GetRPCHeader() RPCHeader {
 	return r.RPCHeader
 }

@@ -40,3 +40,11 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
     fmt.Println("got response")
     return err
 }
+
+// Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
+// Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
+// Need to store global state about client states.
+
+// make request to open session. Take data and ptr to response and clientID.
+
+// close session. Needs clientID. Need to kill go routine sending heartbeat messages.
