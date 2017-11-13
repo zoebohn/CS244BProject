@@ -158,7 +158,7 @@ type ClientRequest struct {
     // True if should initiate or maintain session, false otherwise.
     KeepSession bool
     // ID of client to contact raft server. 
-    ClientID string
+    ClientAddr ServerAddress
 }
 
 // See WithRPCHeader.

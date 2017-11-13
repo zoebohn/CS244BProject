@@ -88,7 +88,7 @@ type leaderState struct {
 	replState  map[ServerID]*followerReplication
 	notify     map[*verifyFuture]struct{}
 	stepDown   chan struct{}
-    clientSessions  map[string]*clientSession
+    clientSessions  map[ServerAddress]*clientSession
 }
 
 // setLeader is used to modify the current leader of the cluster
@@ -343,6 +343,7 @@ func (r *Raft) runLeader() {
 	r.leaderState.replState = make(map[ServerID]*followerReplication)
 	r.leaderState.notify = make(map[*verifyFuture]struct{})
 	r.leaderState.stepDown = make(chan struct{}, 1)
+    r.leaderState.clientSessions = make(map[ServerAddress]*clientSession)
 
 	// Cleanup state on step down
 	defer func() {
@@ -1371,16 +1372,23 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     if (r.getState() == Leader) {
         // Maintain sessions
         if (c.KeepSession) {
-            _, ok := r.leaderState.clientSessions[c.ClientID]
+            _, ok := r.leaderState.clientSessions[c.ClientAddr]
             // If first session, start heartbeat loop.
             if !ok {
-                go r.clientSessionHeartbeatLoop(c.ClientID)
+                r.logger.Printf("starting heartbeat loop")
+                r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
+                r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
+                go r.clientSessionHeartbeatLoop(c.ClientAddr)
             }
-            r.leaderState.clientSessions[c.ClientID].heartbeatCh <- true
+            r.logger.Printf("adding to heartbeatCh")
+            r.leaderState.clientSessions[c.ClientAddr].heartbeatCh <- true
+            r.logger.Printf("added to heartbeatCh")
         }
         // Put in applyCh
-        r.goFunc(func() {
+        go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
             // Serializing client requests, TODO paralellize
+            var rpcErr error
+            r.logger.Printf("processing requests")
             for _,entry := range(c.Entries) {
                 f := r.Apply(entry.Data, 0) //TODO: change to configurable value
                 if f.Error() != nil {
@@ -1390,27 +1398,32 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                 }
                 r.logger.Printf("returned")
             }
+            r.logger.Printf("sending response")
             rpc.Respond(resp, rpcErr)
             // TODO: might want to also extract response from f
-        })
+        }(r, resp, rpc, c)
     } else {
         rpcErr = ErrNotLeader
         resp.Success = false
+        r.logger.Printf("sending not leader response")
         rpc.Respond(resp, rpcErr)
     }
 }
 
-func (r *Raft) clientSessionHeartbeatLoop(clientID string) {
+func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
     for {
+        r.logger.Printf("wait")
         select {
-        case <- r.leaderState.clientSessions[clientID].heartbeatCh:
-            r.leaderState.clientSessions[clientID].lastContact = time.Now()
-        case <- time.After(2*time.Second):
+        case <- r.leaderState.clientSessions[clientAddr].heartbeatCh:
+            r.leaderState.clientSessions[clientAddr].lastContact = time.Now()
+        case <- time.After(5*time.Second):
             // TODO: do any notification for ending client session
             // But only affects state if drops connection to leader.
-            delete(r.leaderState.clientSessions, clientID)
+            r.logger.Printf("ending client session")
+            delete(r.leaderState.clientSessions, clientAddr)
             return
         }
+        r.logger.Printf("was triggered")
     }
 }
 
