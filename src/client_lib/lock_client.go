@@ -8,6 +8,7 @@ type LockClient struct {
     trans           *raft.NetworkTransport
     masterServers   []raft.ServerAddress
     // TODO: need to go from lock domain to replica group ID
+    locks           map[Lock]ReplicaGroupId
     clients         map[ReplicaGroupId]*raft.Client // Possibly make this a map so know what clients correspond to which domains.
     replicaServers  map[ReplicaGroupId][]raft.ServerAddress
 }
@@ -16,6 +17,10 @@ type LockClient struct {
 type Sequencer int
 
 type ReplicaGroupId int
+
+type Lock string
+
+type Domain string
 
 /* Create lock client. */
 func CreateLockClient(trans *raft.NetworkTransport, masterServers []raft.ServerAddress) (*LockClient, error) {
@@ -37,14 +42,14 @@ func (lc *LockClient) DestroyLockClient() error {
     return nil
 }
 
-func (lc *LockClient) CreateLock(name string) (bool, error) {
+func (lc *LockClient) CreateLock(l Lock) (bool, error) {
     /* Parse name to get domain. */
     /* Contact master to create lock entry (master then contacts replica group). */
     /* Return false if lock already existed. */
     return true, nil
 }
 
-func (lc *LockClient) AcquireLock(name string) (Sequencer, error) {
+func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     /* Parse name to get domain. */
     /* If know where lock is stored, open/find connection to contact directly. */
     /* Otherwise, use locate to ask master where stored, then open/find connection. */
@@ -52,7 +57,7 @@ func (lc *LockClient) AcquireLock(name string) (Sequencer, error) {
     return 1, nil
 }
 
-func (lc *LockClient) CreateDomain(name string) (bool, error) {
+func (lc *LockClient) CreateDomain(d Domain) (bool, error) {
     /* Parse name to get domain. */
     /* Contact master to create domain (master then contacts replica group). */
     /* Return false if domain already exists. */
@@ -61,7 +66,7 @@ func (lc *LockClient) CreateDomain(name string) (bool, error) {
 
 /* Helper functions. */
 
-func (lc *LockClient) askMasterToLocate(name string) (ReplicaGroupId, error) {
+func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
     /* Ask master for location of lock, return replica group ID. */
     /* Master should return the server addresses of the replica group. */
     /* If server addresses of replica group don't have replica group id yet, put
@@ -75,9 +80,3 @@ func (lc *LockClient) getClientForId(id ReplicaGroupId) (*raft.Client, error) {
     return nil, nil
 }
 
-// Do we need this??? Depends how we go from lock domains to replica group IDs
-func parseLockDomain(name string) ([]string, error) {
-    /* Parse string lock domain into different elements.
-    /* Error if malformed input. */
-    return []string{}, nil
-}
