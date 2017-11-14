@@ -53,11 +53,7 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
 
 // Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
 // Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
-func CreateClientSession(addrs []ServerAddress) (*Client, error) {
-    trans, err := NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
-    if err != nil {
-        return nil, err
-    }
+func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Client, error) {
     client := &Client{
         trans: trans,
         raftServers: addrs,

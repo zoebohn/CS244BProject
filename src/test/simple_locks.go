@@ -3,13 +3,19 @@ package main
 import (
     "fmt"
     "raft"
+    "time"
 )
 
 const LeaderAddr = "127.0.0.1:52177"
 var servers = []raft.ServerAddress {"127.0.0.1:52743", "127.0.0.1:52744", "127.0.0.1:52745"}
 
 func main() {
-    c, err := raft.CreateClientSession(servers)
+    trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    if err != nil {
+        fmt.Println("err: ", err)
+        return
+    }
+    c, err := raft.CreateClientSession(trans, servers)
     if err != nil {
         fmt.Println("err: %v", err)
         return
