@@ -6,8 +6,8 @@ import (
     "time"
 )
 
-const LeaderAddr = "127.0.0.1:52177"
-var servers = []raft.ServerAddress {"127.0.0.1:52743", "127.0.0.1:52744", "127.0.0.1:52745"}
+var servers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
+var LeaderAddr = raft.ServerAddress("127.0.0.1:8000")
 
 func main() {
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)

@@ -9,8 +9,8 @@ import(
 	"os"
 )
 
-
-func makeCluster(n int, fsm raft.FSM) *cluster {
+// TODO: should return error if can't do setup
+func MakeCluster(n int, fsm raft.FSM, addrs []raft.ServerAddress) *cluster {
     conf := raft.DefaultConfig()
     bootstrap := true
 
@@ -39,7 +39,7 @@ func makeCluster(n int, fsm raft.FSM) *cluster {
 	    snap, err := raft.NewFileSnapshotStore(dir, 3, nil)
 		c.snaps = append(c.snaps, snap)
 
-        trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+        trans, err := raft.NewTCPTransport(string(addrs[i]), nil, 2, time.Second, nil)
         if err != nil {
             fmt.Println("err: %v", err)
         }

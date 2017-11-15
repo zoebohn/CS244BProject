@@ -1,7 +1,7 @@
 package main
 
 import(
-    "server_lib"
+    "locks"
     "fmt"
 	"raft"
 	"io"
@@ -37,7 +37,8 @@ func (s *simpleSnapshot) Release() {
 }
 
 func test() {
-    server_lib.makeCluster(3, &simpleFSM{})
+    addrs := []raft.ServerAddress{"127.0.0.1:8000","127.0.0.1:8001","127.0.0.1:8002"}
+    locks.MakeCluster(3, &simpleFSM{}, addrs)
     c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
