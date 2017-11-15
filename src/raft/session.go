@@ -11,7 +11,7 @@ import (
 )
 
 
-type Client struct {
+type Session struct {
     trans       *NetworkTransport
     currConn    *netConn
     raftServers []ServerAddress
@@ -53,25 +53,25 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
 
 // Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
 // Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
-func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Client, error) {
-    client := &Client{
+func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Session, error) {
+    session := &Session{
         trans: trans,
         raftServers: addrs,
         active: true,
         stopCh : make(chan bool, 1),
     }
-    if err := client.findActiveServer(); err != nil {
+    if err := session.findActiveServer(); err != nil {
         return nil ,err
     }
-    go client.clientKeepAliveLoop()
-    return client, nil
+    go session.sessionKeepAliveLoop()
+    return session, nil
 }
 
 
 // make request to open session. Take data and ptr to response and clientID.
 // check active!
-func (c *Client) SendRequest(data []byte, resp *ClientResponse) error {
-    if !c.active {
+func (s *Session) SendRequest(data []byte, resp *ClientResponse) error {
+    if !s.active {
         return errors.New("Inactive client session.")
     }
     if resp == nil {
@@ -87,32 +87,32 @@ func (c *Client) SendRequest(data []byte, resp *ClientResponse) error {
                 Data: data,
             },
         },
-        ClientAddr: c.trans.LocalAddr(),
+        ClientAddr: s.trans.LocalAddr(),
         KeepSession: true,
     }
-    return c.sendToActiveLeader(&req, resp)
+    return s.sendToActiveLeader(&req, resp)
 }
 
 
 /* Close client session. Kill heartbeat go routine. */
-func (c *Client) CloseClientSession() error {
-    if !c.active {
+func (s *Session) CloseClientSession() error {
+    if !s.active {
         return errors.New("Inactive client session")
     }
-    c.stopCh <- true
+    s.stopCh <- true
     fmt.Println("closed client session")
     return nil
 }
 
 /* Loop to send and receive heartbeat messages. */
-func (c *Client) clientKeepAliveLoop() {
-    for c.active {
+func (s *Session) sessionKeepAliveLoop() {
+    for s.active {
         select {
         case <-time.After(time.Second):
-        case <- c.stopCh:
-            c.active = false
+        case <- s.stopCh:
+            s.active = false
         }
-        if !c.active {
+        if !s.active {
             fmt.Println("client session no longer active")
             return
         }
@@ -122,48 +122,48 @@ func (c *Client) clientKeepAliveLoop() {
               ProtocolVersion: ProtocolVersionMax,
           },
           Entries: nil,
-          ClientAddr: c.trans.LocalAddr(),
+          ClientAddr: s.trans.LocalAddr(),
           KeepSession: true,
         }
-        c.sendToActiveLeader(&heartbeat, &ClientResponse{})
+        s.sendToActiveLeader(&heartbeat, &ClientResponse{})
     }
     fmt.Println("client session no longer active")
 }
 
-func (c *Client) sendToActiveLeader(request *ClientRequest, response *ClientResponse) error {
+func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientResponse) error {
     var err error = errors.New("")
     retries := 5
     /* Send heartbeat to active leader. Connect to active leader if connection no longer to active leader. */
     for err != nil {
         if retries <= 0 {
-            c.active = false
+            s.active = false
             return errors.New("Failed to find active leader.")
         }
-        if c.currConn == nil {
-            c.active = false
+        if s.currConn == nil {
+            s.active = false
             return errors.New("No current connection.")
         }
-        err = sendRPC(c.currConn, rpcClientRequest, request)
+        err = sendRPC(s.currConn, rpcClientRequest, request)
         /* Try another server if server went down. */
         for err != nil {
             if retries <= 0 {
-                c.active = false
+                s.active = false
                 return errors.New("Failed to find active leader.")
             }
-            err = c.findActiveServer()
+            err = s.findActiveServer()
             if err != nil {
-                c.active = false
+                s.active = false
                 return errors.New("No active server found.")
             }
             retries--
-            err = sendRPC(c.currConn, rpcClientRequest, request)
+            err = sendRPC(s.currConn, rpcClientRequest, request)
         }
         /* Decode response if necesary. Try new server to find leader if necessary. */
         // TODO: try new way to find leader now from heartbeats
         fmt.Println("waiting for response")
-        _, err = decodeResponse(c.currConn, &response)
+        _, err = decodeResponse(s.currConn, &response)
         if err != nil {
-            c.currConn, err = c.trans.getConn(response.LeaderAddress)
+            s.currConn, err = s.trans.getConn(response.LeaderAddress)
         }
         retries--
     }
@@ -171,10 +171,10 @@ func (c *Client) sendToActiveLeader(request *ClientRequest, response *ClientResp
 }
 
 /* Find active raft server and open connection to it. */
-func (c *Client) findActiveServer() error {
+func (s *Session) findActiveServer() error {
     var err error
-    for _, addr := range(c.raftServers) {
-        c.currConn, err = c.trans.getConn(addr)
+    for _, addr := range(s.raftServers) {
+        s.currConn, err = s.trans.getConn(addr)
         if err == nil {
             return nil
         }

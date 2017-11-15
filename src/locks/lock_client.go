@@ -9,7 +9,7 @@ type LockClient struct {
     masterServers   []raft.ServerAddress
     // TODO: need to go from lock domain to replica group ID
     locks           map[Lock]ReplicaGroupId
-    clients         map[ReplicaGroupId]*raft.Client // Possibly make this a map so know what clients correspond to which domains.
+    sessions        map[ReplicaGroupId]*raft.Session // Possibly make this a map so know what clients correspond to which domains.
     replicaServers  map[ReplicaGroupId][]raft.ServerAddress
 }
 
@@ -27,8 +27,8 @@ func CreateLockClient(trans *raft.NetworkTransport, masterServers []raft.ServerA
 func (lc *LockClient) DestroyLockClient() error {
     /* Release any acquired locks. */
     /* Close client sessions. */
-    for _, client := range(lc.clients) {
-        if err := client.CloseClientSession(); err != nil {
+    for _, s := range(lc.sessions) {
+        if err := s.CloseClientSession(); err != nil {
             return err
         }
     }
@@ -67,7 +67,7 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
     return 1, nil
 }
 
-func (lc *LockClient) getClientForId(id ReplicaGroupId) (*raft.Client, error) {
+func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) {
     /* Return existing client session or create new client session for replica group ID. */
     /* Return error if don't have server addresses for replica group ID. */
     return nil, nil

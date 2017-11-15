@@ -15,14 +15,14 @@ func main() {
         fmt.Println("err: ", err)
         return
     }
-    c, err := raft.CreateClientSession(trans, servers)
+    s, err := raft.CreateClientSession(trans, servers)
     if err != nil {
         fmt.Println("err: %v", err)
         return
     }
-    acquireLock(c)
-    releaseLock(c)
-    if err := c.CloseClientSession(); err != nil {
+    acquireLock(s)
+    releaseLock(s)
+    if err := s.CloseClientSession(); err != nil {
         fmt.Println("err: %v", err)
     }
     fmt.Println("done")
@@ -31,10 +31,10 @@ func main() {
     fmt.Println("done")*/
 }
 
-func releaseLock(c *raft.Client) {
+func releaseLock(s *raft.Session) {
     fmt.Println("trying to release lock")
     var resp raft.ClientResponse
-    err := c.SendRequest([]byte{0}, &resp)
+    err := s.SendRequest([]byte{0}, &resp)
     if err != nil {
         fmt.Println("err: %v", err)
     }
@@ -42,10 +42,10 @@ func releaseLock(c *raft.Client) {
     fmt.Println("released lock")
 }
 
-func acquireLock(c *raft.Client) {
+func acquireLock(s *raft.Session) {
     fmt.Println("trying to acquire lock")
     var resp raft.ClientResponse
-    err := c.SendRequest([]byte{1}, &resp)
+    err := s.SendRequest([]byte{1}, &resp)
     if err != nil {
         fmt.Println("err: %v", err)
     }
