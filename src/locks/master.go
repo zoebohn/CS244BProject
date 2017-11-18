@@ -2,6 +2,7 @@ package locks
 
 import(
     "raft"
+    "strings"
 )
 
 type MasterFSM struct {
@@ -10,7 +11,7 @@ type MasterFSM struct {
     /* Map of replica group IDs to server addresses of the servers in that replica group. */
     clusterMap          map[ReplicaGroupId][]raft.ServerAddress
     /* Map of lock domains to replica group where should be stored. */
-    domainPlacementMap  map[Domain]ReplicaGroupId
+    domainPlacementMap  map[Domain][]ReplicaGroupId
     /* Tracks number of locks held by each replica group. */
     numLocksHeld        map[ReplicaGroupId]int
 }
@@ -18,6 +19,7 @@ type MasterFSM struct {
 /* TODO: what do we need to do here? */
 type masterSnapshot struct{}
 
+/* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
 func (m *MasterFSM) Apply(log *raft.Log) interface{} { 
     /* Interpret log to find command. Call appropriate function. */
     return nil
@@ -42,6 +44,24 @@ func (m *MasterFSM) createLock(l Lock) error {
       Tell replica group to make that log
       numLocksHeld[group]++
       Add lock to lockMap */
+      if _, ok := m.lockMap[l]; ok {
+          return ErrLockExists
+      }
+      if len(string(l)) == 0 {
+          return ErrEmptyPath
+      }
+      domain := getParentDomain(string(l))
+      replicaGroups, ok := m.domainPlacementMap[domain]
+      if !ok || len(replicaGroups) == 0 {
+          return ErrNoIntermediateDomain
+      }
+      replicaGroup, err := m.choosePlacement(replicaGroups)
+      if err != nil {
+          return err
+      }
+      /* TODO: Tell replica group to make that lock. */
+      m.numLocksHeld[replicaGroup]++
+      m.lockMap[l] = replicaGroup
       return nil
 }
 
@@ -50,6 +70,22 @@ func (m *MasterFSM) createLockDomain(d Domain) error {
        Check that intermediate domains exist.
        Get replica group ID where should be put.
        Add to domainPlacementMap. */
+    if _, ok := m.domainPlacementMap[d]; ok {
+       return ErrDomainExists
+    }
+    if len(string(d)) == 0 {
+        return ErrEmptyPath
+    }
+    domain := getParentDomain(string(d))
+    replicaGroups, ok := m.domainPlacementMap[domain]
+    if !ok || len(replicaGroups) == 0 {
+        return ErrNoIntermediateDomain
+    }
+    replicaGroup, err := m.choosePlacement(replicaGroups)
+    if err != nil {
+        return err
+    }
+    m.domainPlacementMap[d] = []ReplicaGroupId{replicaGroup}
     return nil
 }
 
@@ -57,12 +93,41 @@ func (m *MasterFSM) findLock(l Lock) (ReplicaGroupId, []raft.ServerAddress, erro
     /* Check that lock exists.
        Check lockMap to find replica group ID. 
        Return replica groupID and servers using clusterMap. */
-    return 1, []raft.ServerAddress{}, nil 
+    replicaGroup, ok := m.lockMap[l]
+    if !ok {
+        return -1, nil, ErrLockDoesntExist
+    }
+    return replicaGroup, m.clusterMap[replicaGroup], nil
 }
 
-func (m *MasterFSM) getParentDomain(d Domain) (Domain, error) {
-    /* Strip off last part of domain and get domain before. */
-    return "", nil
+func getParentDomain(path string) Domain {
+    /* Set root as parent of all directories */
+    slice := []string{"/"}
+    split := strings.Split(path, "/")
+    for _, s := range(split) {
+        slice = append(slice, s)
+    }
+    /* Remove last element. */
+    slice = slice[:len(slice)-1]
+    return Domain(strings.Join(slice, "/"))
+}
+
+func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGroupId, error) {
+    if len(replicaGroups) == 0 {
+        return -1, ErrNoPlacement
+    }
+    chosen := replicaGroups[0]
+    minLoad := m.numLocksHeld[chosen]
+    for _, replicaGroup := range(replicaGroups) {
+        if minLoad < m.numLocksHeld[replicaGroup] {
+            chosen = replicaGroup
+            minLoad = m.numLocksHeld[replicaGroup]
+        }
+    }
+    if chosen == -1 {
+        return -1, ErrNoPlacement
+    }
+    return chosen, nil
 }
 
 func (m *MasterFSM) recruitCluster() error {

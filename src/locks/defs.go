@@ -1,5 +1,9 @@
 package locks
 
+import(
+    "errors"
+)
+
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
 
@@ -13,4 +17,11 @@ type Lock string
 type Domain string
 
 /* TODO: define errors. */
-
+var(
+    ErrLockExists = errors.New("lock already exists")
+    ErrLockDoesntExist = errors.New("lock doesn't exist")
+    ErrNoIntermediateDomain = errors.New("no intermediate domain")
+    ErrNoPlacement = errors.New("no valid placement found")
+    ErrDomainExists = errors.New("domain already exists")
+    ErrEmptyPath = errors.New("cannot use empty path")
+)

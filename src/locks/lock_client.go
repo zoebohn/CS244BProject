@@ -50,6 +50,14 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     return 1, nil
 }
 
+func (lc *LockClient) releaseLock(l Lock) error {
+    /* Parse name to get domain. */
+    /* If know where lock is stored, open/find connection to contact directly. */
+    /* Otherwise, use locate to ask master where stored, then open/find connection. */
+    /* Release lock and return sequencer. */
+    return nil
+}
+
 func (lc *LockClient) CreateDomain(d Domain) (bool, error) {
     /* Parse name to get domain. */
     /* Contact master to create domain (master then contacts replica group). */
