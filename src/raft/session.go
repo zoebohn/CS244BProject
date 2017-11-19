@@ -51,6 +51,26 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
     return err
 }
 
+func SendSingletonRequestToCluster(trans *NetworkTransport, addrs []ServerAddress, data []byte, resp *ClientResponse) error {
+    if resp == nil {
+        return errors.New("Response is nil")
+    }
+    // Send RPC
+    clientRequest := ClientRequest{
+        RPCHeader: RPCHeader{
+            ProtocolVersion: ProtocolVersionMax,
+        },
+        Entries: []*Log{
+            &Log{
+                Type: LogCommand,
+                Data: data,
+            },
+        },
+    }
+    return sendSingletonRpcToActiveLeader(trans, addrs, &clientRequest, resp)
+}
+
+
 // Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
 // Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
 func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Session, error) {
@@ -60,7 +80,9 @@ func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Sessi
         active: true,
         stopCh : make(chan bool, 1),
     }
-    if err := session.findActiveServer(); err != nil {
+    var err error
+    session.currConn, err = findActiveServer(addrs, trans)
+    if err != nil {
         return nil ,err
     }
     go session.sessionKeepAliveLoop()
@@ -150,7 +172,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
                 s.active = false
                 return errors.New("Failed to find active leader.")
             }
-            err = s.findActiveServer()
+            s.currConn, err = findActiveServer(s.raftServers, s.trans)
             if err != nil {
                 s.active = false
                 return errors.New("No active server found.")
@@ -170,14 +192,52 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
     return nil
 }
 
-/* Find active raft server and open connection to it. */
-func (s *Session) findActiveServer() error {
-    var err error
-    for _, addr := range(s.raftServers) {
-        s.currConn, err = s.trans.getConn(addr)
+func sendSingletonRpcToActiveLeader(trans *NetworkTransport, addrs []ServerAddress, request *ClientRequest, response *ClientResponse) error {
+    retries := 5
+    conn, err := findActiveServer(addrs, trans)
+    if err != nil {
+        return errors.New("No active serve found.")
+    }
+    err = errors.New("")
+    /* Send heartbeat to active leader. Connect to active leader if connection no longer to active leader. */
+    for err != nil {
+        if retries <= 0 {
+            return errors.New("Failed to find active leader.")
+        }
+        if conn == nil {
+            return errors.New("No current connection.")
+        }
+        err = sendRPC(conn, rpcClientRequest, request)
+        /* Try another server if server went down. */
+        for err != nil {
+            if retries <= 0 {
+                return errors.New("Failed to find active leader.")
+            }
+            conn, err = findActiveServer(addrs, trans)
+            if err != nil {
+                return errors.New("No active server found.")
+            }
+            retries--
+            err = sendRPC(conn, rpcClientRequest, request)
+        }
+        /* Decode response if necesary. Try new server to find leader if necessary. */
+        // TODO: try new way to find leader now from heartbeats
+        fmt.Println("waiting for response")
+        _, err = decodeResponse(conn, &response)
+        if err != nil {
+            conn, err = trans.getConn(response.LeaderAddress)
+        }
+        retries--
+    }
+    return nil
+}
+
+func findActiveServer(addrs []ServerAddress, trans *NetworkTransport) (*netConn, error) {
+    for _, addr := range(addrs) {
+        conn, err := trans.getConn(addr)
         if err == nil {
-            return nil
+            return conn, nil
         }
     }
-    return errors.New("No active raft servers.")
+    return nil, errors.New("No active raft servers.")
 }

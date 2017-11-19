@@ -2,6 +2,7 @@ package locks
 
 import(
     "raft"
+    "io"
 )
 
 type WorkerFSM struct{
@@ -22,6 +23,15 @@ type lockState struct{
 
 /* TODO: what do we need to do here? */
 type workerSnapshot struct{}
+
+func (w *WorkerFSM) Apply(log *raft.Log) interface{} { 
+    /* Interpret log to find command. Call appropriate function. */
+    return nil
+}
+
+func (w *WorkerFSM) Restore(i io.ReadCloser) error {
+    return nil
+}
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     return &workerSnapshot{}, nil
