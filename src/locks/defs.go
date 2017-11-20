@@ -24,4 +24,10 @@ var(
     ErrNoPlacement = errors.New("no valid placement found")
     ErrDomainExists = errors.New("domain already exists")
     ErrEmptyPath = errors.New("cannot use empty path")
+    ErrLockHeld = errors.New("lock is currently held")
+    ErrLockRecalcitrant = errors.New("lock is recalcitrant")
+    ErrLockDisabled = errors.New("lock is currently disabled")
+    ErrLockNotHeld = errors.New("lock is not currently held")
+    ErrBadClientRelease = errors.New("lock was not acquired by client trying to release it")
+
 )

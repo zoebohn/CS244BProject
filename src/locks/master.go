@@ -7,8 +7,6 @@ import(
 )
 
 type MasterFSM struct {
-    /* Transport layer. TODO: initialize*/
-    trans               *raft.NetworkTransport
     /* Map of locks to replica group where stored. */
     lockMap             map[Lock]*masterLockState
     /* Map of replica group IDs to server addresses of the servers in that replica group. */
@@ -82,14 +80,15 @@ func (m *MasterFSM) createLock(l Lock) error {
       m.numLocksHeld[replicaGroup]++
       m.lockMap[l] = &masterLockState{replicaGroup: replicaGroup, inTransit: true}
       /* Need to make sure replica group has made lock before replying to client. */
-      go func(){
+      /* TODO: only leader should send fire and forget RPC, shouldn't affect state */
+/*      go func(){
           /* TODO: generate command */
-        command := []byte{} 
+/*        command := []byte{} 
         err := raft.SendSingletonRequestToCluster(m.trans, m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
-        if err != nil /* and response is correct */ {
+        if err != nil /* and response is correct *//* {
             m.lockMap[l].inTransit = false
         }
-      }()
+      }()*/
       return nil
 }
 
