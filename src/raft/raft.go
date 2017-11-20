@@ -1396,6 +1396,10 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                     rpcErr = f.Error()
                     resp.Success = false
                 }
+                /* If callback, make leader execute callback */
+                if f.Callback() != nil {
+                    go f.Callback()
+                }
                 r.logger.Printf("returned")
             }
             r.logger.Printf("sending response")

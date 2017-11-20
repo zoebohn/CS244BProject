@@ -34,9 +34,9 @@ const numClusterServers = 3
 type masterSnapshot struct{}
 
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
-func (m *MasterFSM) Apply(log *raft.Log) interface{} { 
+func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) { 
     /* Interpret log to find command. Call appropriate function. */
-    return nil
+    return nil, nil
 }
 
 /* TODO: what to do here? */
@@ -55,41 +55,41 @@ func (s *masterSnapshot) Persist(sink raft.SnapshotSink) error {
 func (s *masterSnapshot) Release() {
 }
 
-func (m *MasterFSM) createLock(l Lock) error {
+func (m *MasterFSM) createLock(l Lock) (func(), error) {
    /* Check if already exists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
       Tell replica group to make that log
       numLocksHeld[group]++
       Add lock to lockMap */
-      if _, ok := m.lockMap[l]; ok {
-          return ErrLockExists
-      }
-      if len(string(l)) == 0 {
-          return ErrEmptyPath
-      }
-      domain := getParentDomain(string(l))
-      replicaGroups, ok := m.domainPlacementMap[domain]
-      if !ok || len(replicaGroups) == 0 {
-          return ErrNoIntermediateDomain
-      }
-      replicaGroup, err := m.choosePlacement(replicaGroups)
-      if err != nil {
-          return err
-      }
-      m.numLocksHeld[replicaGroup]++
-      m.lockMap[l] = &masterLockState{replicaGroup: replicaGroup, inTransit: true}
-      /* Need to make sure replica group has made lock before replying to client. */
-      /* TODO: only leader should send fire and forget RPC, shouldn't affect state */
-/*      go func(){
-          /* TODO: generate command */
-/*        command := []byte{} 
-        err := raft.SendSingletonRequestToCluster(m.trans, m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
-        if err != nil /* and response is correct *//* {
-            m.lockMap[l].inTransit = false
+    if _, ok := m.lockMap[l]; ok {
+        return nil, ErrLockExists
+    }
+    if len(string(l)) == 0 {
+        return nil, ErrEmptyPath
+    }
+    domain := getParentDomain(string(l))
+    replicaGroups, ok := m.domainPlacementMap[domain]
+    if !ok || len(replicaGroups) == 0 {
+        return nil, ErrNoIntermediateDomain
+    }
+    replicaGroup, err := m.choosePlacement(replicaGroups)
+    if err != nil {
+        return nil, err
+    }
+    m.numLocksHeld[replicaGroup]++
+    m.lockMap[l] = &masterLockState{replicaGroup: replicaGroup, inTransit: true}
+    /* Only do this if r not nil and is leader */
+    /* Is there a leader lock I need to acquire around this? make sure don't lose leader mandate? */
+    /* Need to make sure replica group has made lock before replying to client. */
+    /* TODO: mark not as transit when receive response from worker cluster. */
+    /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
+    f := func(){
+            /* TODO: generate command */
+            command := []byte{} 
+            raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
         }
-      }()*/
-      return nil
+    return f, nil
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) error {

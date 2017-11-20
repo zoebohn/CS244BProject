@@ -24,9 +24,9 @@ type lockState struct{
 /* TODO: what do we need to do here? */
 type workerSnapshot struct{}
 
-func (w *WorkerFSM) Apply(log *raft.Log) interface{} { 
+func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
     /* Interpret log to find command. Call appropriate function. */
-    return nil
+    return nil, nil
 }
 
 func (w *WorkerFSM) Restore(i io.ReadCloser) error {
@@ -55,10 +55,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (bool, err
      if state.held {
          return false, ErrLockHeld
      }
-     /* TODO: might not need this check? recalcitrant locks should always be either held or disabled until moved? */
-     if state.recalcitrant {
-         return false, ErrLockRecalcitrant
-     }
+     /* need to check if recalcitrant? recalcitrant locks should always be either held or disabled until moved? */
      if state.disabled {
          return false, ErrLockDisabled
      }
@@ -72,7 +69,7 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) error {
        If not held by this client, return error.
        If not recalcitrant, release normally. 
        If recalcitrant, mark as disabled and release, notify master. */
-    return nil
+    /* TODO: if recalcitrant, tell master and delete (rebalancing protocol). */
     if _, ok := w.lockStateMap[l]; !ok {
         return ErrLockDoesntExist
     }

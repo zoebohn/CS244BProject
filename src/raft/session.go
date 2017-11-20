@@ -1,15 +1,14 @@
 package raft
 
 import (
-    //"net"
+    "net"
     "time"
     "fmt"
     "errors"
-    //"bufio"
+    "bufio"
 
-    //"github.com/hashicorp/go-msgpack/codec"
+    "github.com/hashicorp/go-msgpack/codec"
 )
-
 
 type Session struct {
     trans       *NetworkTransport
@@ -51,7 +50,7 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
     return err
 }
 
-func SendSingletonRequestToCluster(trans *NetworkTransport, addrs []ServerAddress, data []byte, resp *ClientResponse) error {
+func SendSingletonRequestToCluster(addrs []ServerAddress, data []byte, resp *ClientResponse) error {
     if resp == nil {
         return errors.New("Response is nil")
     }
@@ -67,7 +66,7 @@ func SendSingletonRequestToCluster(trans *NetworkTransport, addrs []ServerAddres
             },
         },
     }
-    return sendSingletonRpcToActiveLeader(trans, addrs, &clientRequest, resp)
+    return sendSingletonRpcToActiveLeader(addrs, &clientRequest, resp)
 }
 
 
@@ -81,7 +80,7 @@ func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Sessi
         stopCh : make(chan bool, 1),
     }
     var err error
-    session.currConn, err = findActiveServer(addrs, trans)
+    session.currConn, err = findActiveServerWithTrans(addrs, trans)
     if err != nil {
         return nil ,err
     }
@@ -172,7 +171,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
                 s.active = false
                 return errors.New("Failed to find active leader.")
             }
-            s.currConn, err = findActiveServer(s.raftServers, s.trans)
+            s.currConn, err = findActiveServerWithTrans(s.raftServers, s.trans)
             if err != nil {
                 s.active = false
                 return errors.New("No active server found.")
@@ -192,9 +191,9 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
     return nil
 }
 
-func sendSingletonRpcToActiveLeader(trans *NetworkTransport, addrs []ServerAddress, request *ClientRequest, response *ClientResponse) error {
+func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientRequest, response *ClientResponse) error {
     retries := 5
-    conn, err := findActiveServer(addrs, trans)
+    conn, err := findActiveServerWithoutTrans(addrs)
     if err != nil {
         return errors.New("No active serve found.")
     }
@@ -213,7 +212,7 @@ func sendSingletonRpcToActiveLeader(trans *NetworkTransport, addrs []ServerAddre
             if retries <= 0 {
                 return errors.New("Failed to find active leader.")
             }
-            conn, err = findActiveServer(addrs, trans)
+            conn, err = findActiveServerWithoutTrans(addrs)
             if err != nil {
                 return errors.New("No active server found.")
             }
@@ -225,14 +224,14 @@ func sendSingletonRpcToActiveLeader(trans *NetworkTransport, addrs []ServerAddre
         fmt.Println("waiting for response")
         _, err = decodeResponse(conn, &response)
         if err != nil {
-            conn, err = trans.getConn(response.LeaderAddress)
+            conn, err = buildNetConn(response.LeaderAddress)
         }
         retries--
     }
     return nil
 }
 
-func findActiveServer(addrs []ServerAddress, trans *NetworkTransport) (*netConn, error) {
+func findActiveServerWithTrans(addrs []ServerAddress, trans *NetworkTransport) (*netConn, error) {
     for _, addr := range(addrs) {
         conn, err := trans.getConn(addr)
         if err == nil {
@@ -240,4 +239,37 @@ func findActiveServer(addrs []ServerAddress, trans *NetworkTransport) (*netConn,
         }
     }
     return nil, errors.New("No active raft servers.")
+}
+
+func findActiveServerWithoutTrans(addrs []ServerAddress) (*netConn, error) {
+    for _, addr := range(addrs) {
+        conn, err := buildNetConn(addr)
+        if err == nil {
+            return conn, nil
+        }
+    }
+    return nil, errors.New("No active raft servers.")
+}
+
+func buildNetConn(target ServerAddress) (*netConn, error) {
+    // Dial a new connection
+	conn, err := net.Dial("tcp", string(target))
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the conn
+	netConn := &netConn{
+		target: target,
+		conn:   conn,
+		r:      bufio.NewReader(conn),
+		w:      bufio.NewWriter(conn),
+	}
+
+	// Setup encoder/decoders
+	netConn.dec = codec.NewDecoder(netConn.r, &codec.MsgpackHandle{})
+	netConn.enc = codec.NewEncoder(netConn.w, &codec.MsgpackHandle{})
+
+	// Done
+	return netConn, nil
 }
