@@ -29,6 +29,12 @@ type lockState struct{
 
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
     /* Interpret log to find command. Call appropriate function. */
+    // use Data and assume it was in json? check type for what
+    // function to call? or maybe we add a log command that's a 
+    // client command and unpack function type from the data
+    
+    // log.Type?
+
     return nil, nil
 }
 

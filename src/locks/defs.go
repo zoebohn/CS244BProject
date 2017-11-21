@@ -4,6 +4,17 @@ import(
     "errors"
 )
 
+/* Client RPCs */
+const CreateLockCommand string = "CreateLock"
+const AcquireLockCommand string = "AcquireLock"
+const ReleaseLockCommand string = "ReleaseLock"
+const CreateDomainCommand string = "CreateDomain"
+const LocateLockCommand string = "LocateLock"
+const GetSessionForIDCommand string = "GetSessionForID"
+const LockArgKey string = "lock"
+const IDArgKey string = "id"
+const DomainArgKey string = "domain"
+
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
 
