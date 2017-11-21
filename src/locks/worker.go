@@ -40,7 +40,6 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     function := args[FunctionKey]
     l := Lock(args[LockArgKey])
     clientAddr := raft.ServerAddress(args[ClientAddrKey])
-    //TODO do switches fallthrough or break?
     switch function {
         case AcquireLockCommand:
             w.tryAcquireLock(l, clientAddr)

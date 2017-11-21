@@ -3,7 +3,6 @@ package locks
 import (
     "raft"
     "encoding/json"
-    "strconv"
 )
 
 type LockClient struct {
@@ -52,7 +51,6 @@ func (lc *LockClient) CreateLock(l Lock) (bool, error) {
     }
     resp := raft.ClientResponse{}
     raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
-    //sendRPC(conn, raft.rpcClientRequest, clientRequest)
     /* Parse name to get domain. */
     /* Contact master to create lock entry (master then contacts replica group). */
     /* Return false if lock already existed. */
@@ -131,15 +129,6 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
 }
 
 func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) {
-    args := make(map[string]string)
-    args[FunctionKey] = GetSessionForIDCommand
-    args[IDArgKey] = strconv.Itoa(int(id))
-    data, err := json.Marshal(args)
-    if err != nil {
-        return nil, err
-    }
-    resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
     /* Return existing client session or create new client session for replica group ID. */
     /* Return error if don't have server addresses for replica group ID. */
     return nil, nil
