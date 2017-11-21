@@ -44,6 +44,30 @@ type MasterSnapshot struct{
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
 func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */
+
+    args := make(map[string]string)
+    err := json.Unmarshal(log.Data, args)
+    if err != nil {
+        //TODO
+    }   
+    function := args[FunctionKey]
+    //TODO do switches fall through or break automatically?
+    switch function {
+        case CreateLockCommand:
+            l := Lock(args[LockArgKey])
+            m.createLock(l)
+        case CreateDomainCommand:
+            d := Domain(args[DomainArgKey])
+            m.createLockDomain(d)
+        case GetSessionForIDCommand:
+            //id := args[IDArgKey]
+            //TODO? m.getSession(id)
+        case LocateLockCommand:
+            l := Lock(args[LockArgKey])
+            m.findLock(l)
+    }
+    
+    
     return nil, nil
 }
 
