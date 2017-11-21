@@ -5,15 +5,17 @@ import(
 )
 
 /* Client RPCs */
-const CreateLockCommand string = "CreateLock"
-const AcquireLockCommand string = "AcquireLock"
-const ReleaseLockCommand string = "ReleaseLock"
-const CreateDomainCommand string = "CreateDomain"
-const LocateLockCommand string = "LocateLock"
-const GetSessionForIDCommand string = "GetSessionForID"
+const CreateLockCommand string = "CreateLock"  
+const AcquireLockCommand string = "AcquireLock"  
+const ReleaseLockCommand string = "RelaseLock" 
+const CreateDomainCommand string = "CreateDomainLock" 
+const LocateLockCommand string = "LocateLock" 
+const GetSessionForIDCommand string = "GetSessionForID" 
+const FunctionKey string = "function"
 const LockArgKey string = "lock"
 const IDArgKey string = "id"
 const DomainArgKey string = "domain"
+const ClientAddrKey string = "client-addr"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int

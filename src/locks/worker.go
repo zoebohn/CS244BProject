@@ -32,8 +32,20 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     // use Data and assume it was in json? check type for what
     // function to call? or maybe we add a log command that's a 
     // client command and unpack function type from the data
-    
-    // log.Type?
+    args := make(map[string]string)
+    err := json.Unmarshal(log.Data, args)
+    if err != nil {
+        //TODO
+    }
+    function := args[FunctionKey]
+    l := Lock(args[LockArgKey])
+    clientAddr := raft.ServerAddress(args[ClientAddrKey])
+    switch function {
+        case AcquireLockCommand:
+            w.tryAcquireLock(l, clientAddr)
+        case ReleaseLockCommand:
+            w.releaseLock(l, clientAddr)
+    }
 
     return nil, nil
 }
