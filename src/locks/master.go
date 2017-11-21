@@ -4,6 +4,8 @@ import(
     "raft"
     "strings"
     "io"
+    "encoding/json"
+    "bytes"
 )
 
 type MasterFSM struct {
@@ -21,9 +23,9 @@ type MasterFSM struct {
 
 type masterLockState struct {
     /* Replica group where lock is stored. */
-    replicaGroup        ReplicaGroupId
+    ReplicaGroup        ReplicaGroupId
     /* True if lock is in transit, false otherwise. */
-    inTransit           bool
+    InTransit           bool
 }
 
 /* Constants for recruiting new clusters. */
@@ -31,28 +33,77 @@ var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:600
 const numClusterServers = 3
 
 /* TODO: what do we need to do here? */
-type masterSnapshot struct{}
+type MasterSnapshot struct{
+    LockMap             map[Lock]*masterLockState
+    ClusterMap          map[ReplicaGroupId][]raft.ServerAddress
+    DomainPlacementMap  map[Domain][]ReplicaGroupId
+    NumLocksHeld        map[ReplicaGroupId]int
+    NextReplicaGroupId  ReplicaGroupId
+}
 
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
-func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) { 
+func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */
     return nil, nil
 }
 
 /* TODO: what to do here? */
 func (m *MasterFSM) Snapshot() (raft.FSMSnapshot, error) {
-    return &masterSnapshot{}, nil
+    /* TODO need to lock fsm? */
+    s := MasterSnapshot{LockMap: m.lockMap, ClusterMap: m.clusterMap,
+         DomainPlacementMap: m.domainPlacementMap, NumLocksHeld: m.numLocksHeld,
+         NextReplicaGroupId: m.nextReplicaGroupId}
+    return s, nil
 }
 
 func (m *MasterFSM) Restore(i io.ReadCloser) error {
+    var buffer bytes.Buffer
+    _, read_err := buffer.ReadFrom(i)
+    if read_err != nil {
+        return read_err
+    }
+    snapshotRestored, err := convertFromJSONMaster(buffer.Bytes())
+    if err != nil {
+        return err
+    }
+    m.lockMap = snapshotRestored.LockMap
+    m.clusterMap = snapshotRestored.ClusterMap
+    m.domainPlacementMap = snapshotRestored.DomainPlacementMap
+    m.numLocksHeld = snapshotRestored.NumLocksHeld
+    m.nextReplicaGroupId = snapshotRestored.NextReplicaGroupId
+
     return nil
 }
 
-func (s *masterSnapshot) Persist(sink raft.SnapshotSink) error {
+func (s MasterSnapshot) Persist(sink raft.SnapshotSink) error {
+    /* TODO needs to be safe to invoke this with concurrent apply - they actually lock it in there implementation */
+    json, json_err := s.convertToJSON()
+    if json_err != nil {
+        return json_err
+    }
+    /* Open sink first? */
+    _, err := sink.Write(json)
+    if err != nil {
+        sink.Cancel()
+        return err
+    }
+
+    sink.Close()
     return nil
 }
 
-func (s *masterSnapshot) Release() {
+func (s MasterSnapshot) Release() {
+}
+
+func (s MasterSnapshot) convertToJSON() ([]byte, error) {
+    b, err := json.Marshal(s)
+    return b, err
+}
+
+func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
+    var s MasterSnapshot
+    err := json.Unmarshal(byte_arr, &s)
+    return s, err
 }
 
 func (m *MasterFSM) createLock(l Lock) (func(), error) {
@@ -78,7 +129,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), error) {
         return nil, err
     }
     m.numLocksHeld[replicaGroup]++
-    m.lockMap[l] = &masterLockState{replicaGroup: replicaGroup, inTransit: true}
+    m.lockMap[l] = &masterLockState{ReplicaGroup: replicaGroup, InTransit: true}
     /* Only do this if r not nil and is leader */
     /* Is there a leader lock I need to acquire around this? make sure don't lose leader mandate? */
     /* Need to make sure replica group has made lock before replying to client. */
@@ -124,7 +175,7 @@ func (m *MasterFSM) findLock(l Lock) (ReplicaGroupId, []raft.ServerAddress, erro
     if !ok {
         return -1, nil, ErrLockDoesntExist
     }
-    replicaGroup := lockState.replicaGroup
+    replicaGroup := lockState.ReplicaGroup
     return replicaGroup, m.clusterMap[replicaGroup], nil
 }
 

@@ -4,6 +4,7 @@ import(
     "raft"
     "io"
     "encoding/json"
+    "bytes"
 )
 
 type WorkerFSM struct{
@@ -32,16 +33,12 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
 }
 
 func (w *WorkerFSM) Restore(i io.ReadCloser) error {
-    /* I think the ReadCloser is from the Snapshot */
-    // so read and unmarshal? and then set w?
-    byte_arr := make([]byte, 2000) /* TODO make size of snapshot */
-    // TODO maybe ned to write size before each snapshot?
-    _, read_err := i.Read(byte_arr)
+    var buffer bytes.Buffer
+    _, read_err := buffer.ReadFrom(i)
     if read_err != nil {
         return read_err
     }
-    // TODO check that bytes_read was long enough
-    lockStateMapRestored, err := convertFromJSON(byte_arr)
+    lockStateMapRestored, err := convertFromJSONWorker(buffer.Bytes())
     if err != nil {
         return err
     }
@@ -51,13 +48,14 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
+    /* TODO need to lock fsm? */
     s := WorkerSnapshot{lockStateMap: w.lockStateMap}
     return s, nil
 }
 
 func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
     /* Write lockStateMap to SnapshotSink */
-    /* TODO needs to be safe to invoke this with concurrent apply */
+    /* TODO needs to be safe to invoke this with concurrent apply - they actually lock it in there implementation */
     json, json_err := convertToJSON(s.lockStateMap)
     if json_err != nil {
         return json_err
@@ -68,22 +66,20 @@ func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
         sink.Cancel()
         return err
     }
-    
+
     sink.Close()
     return nil
 }
 
 func (s WorkerSnapshot) Release() {
-    /* Get rid of file from disk? idk */
 }
 
 func convertToJSON(lockStateMap map[Lock]lockState) ([]byte, error) {
-    // TODO needs work
     b, err := json.Marshal(lockStateMap)
     return b, err
 }
 
-func convertFromJSON(byte_arr []byte) (map[Lock]lockState, error) {
+func convertFromJSONWorker(byte_arr []byte) (map[Lock]lockState, error) {
     lockStateMap := map[Lock]lockState{}
     err := json.Unmarshal(byte_arr, &lockStateMap)
     return lockStateMap, err
