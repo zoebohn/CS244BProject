@@ -15,6 +15,9 @@ const LockArgKey string = "lock"
 const DomainArgKey string = "domain"
 const ClientAddrKey string = "client-addr"
 
+/* Master -> Worker RPCs */
+const AddLockCommand string = "add-lock"
+
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
 

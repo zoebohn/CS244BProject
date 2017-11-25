@@ -71,6 +71,8 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
         fmt.Println(err)
     }
     function := args[FunctionKey]
+    fmt.Println(function)
+    fmt.Println("")
     switch function {
         case CreateLockCommand:
             l := Lock(args[LockArgKey])
@@ -184,9 +186,20 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     /* TODO: mark not as transit when receive response from worker cluster. */
     /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
     f := func(){
-            /* TODO: generate command */
-            command := []byte{} 
-            raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
+            fmt.Println("CALLBACK")
+            args := make(map[string]string)
+            args[FunctionKey] = AddLockCommand
+            args[LockArgKey] = string(l)
+            command, json_err := json.Marshal(args)
+            if json_err != nil {
+                //TODO
+                fmt.Println("JSON ERROR")
+            }
+            send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
+            if send_err != nil {
+                fmt.Println("error while sending")
+            }
+            fmt.Println("CALLBACK DONE")
         }
     fmt.Println("lock creation successfull")
     return f, CreateLockResponse{""}

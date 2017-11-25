@@ -1398,7 +1398,10 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                 }
                 /* If callback, make leader execute callback */
                 if f.Callback() != nil {
-                    go f.Callback()
+                    fmt.Println("calling callback")
+                    f.Callback()()
+                } else {
+                    fmt.Println("callback was nil")
                 }
                 data, json_err := json.Marshal(f.Response())
                 fmt.Println(f.Response())

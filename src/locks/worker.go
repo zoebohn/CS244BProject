@@ -24,8 +24,6 @@ type lockState struct{
     Client          raft.ServerAddress
     /* True if lock should be moved after released. */
     Recalcitrant    bool
-    /* True if disabled (cannot be acquired). */
-    Disabled        bool
 }
 
 func CreateWorker() (*WorkerFSM) {
@@ -49,6 +47,9 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     l := Lock(args[LockArgKey])
     clientAddr := raft.ServerAddress(args[ClientAddrKey])
     switch function {
+        case AddLockCommand:
+            w.addLock(l)
+            return nil, nil
         case AcquireLockCommand:
             response := w.tryAcquireLock(l, clientAddr)
             return response, nil
@@ -126,10 +127,6 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      if state.Held {
          return AcquireLockResponse{-1, ErrLockHeld}
      }
-     /* need to check if recalcitrant? recalcitrant locks should always be either held or disabled until moved? */
-     if state.Disabled {
-         return AcquireLockResponse{-1, ErrLockDisabled}
-     }
      state.Held = true
      state.Client = client
      //TODO actually set sequencer
@@ -150,13 +147,15 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockRe
     if !state.Held {
         return ReleaseLockResponse{ErrLockNotHeld}
     }
-    if state.Disabled {
-        return ReleaseLockResponse{ErrLockDisabled}
-    }
     if state.Client != client {
         return ReleaseLockResponse{ErrBadClientRelease}
     }
     state.Client = client
     state.Held = false
     return ReleaseLockResponse{""}
+}
+
+func (w *WorkerFSM) addLock(l Lock) {
+    fmt.Println("adding lock")
+    w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
 }
