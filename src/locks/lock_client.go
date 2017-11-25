@@ -86,7 +86,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     var response AcquireLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling")
+        fmt.Println("error unmarshalling acquire")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -129,10 +129,10 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     /* If know where lock is stored, open/find connection to contact directly. */
     /* Otherwise, use locate to ask master where stored, then open/find connection. */
     /* Release lock and return sequencer. */
-    var response CreateLockResponse
+    var response ReleaseLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling")
+        fmt.Println("error unmarshalling release")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -162,7 +162,7 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
     var response CreateLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling")
+        fmt.Println("error unmarshalling create")
         //TODO
         fmt.Println(unmarshal_err)
     }
