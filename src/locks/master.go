@@ -50,6 +50,11 @@ func CreateMaster() (*MasterFSM) {
         numLocksHeld:       make(map[ReplicaGroupId]int),
         nextReplicaGroupId: 0,
     }
+    err := m.recruitInitialCluster()
+    if err != nil {
+        //TODO
+        fmt.Println(err)
+    }
     return m
 }
 
@@ -254,10 +259,17 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
-func (m *MasterFSM) recruitCluster() error {
-    MakeCluster(numClusterServers, &WorkerFSM{}, recruitAddrs[m.nextReplicaGroupId])
+func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
+    MakeCluster(numClusterServers, CreateWorker(), recruitAddrs[m.nextReplicaGroupId])
     m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId]
     m.numLocksHeld[m.nextReplicaGroupId] = 0
+    id := m.nextReplicaGroupId //TODO race condition?
     m.nextReplicaGroupId++
-    return nil
+    return id, nil
+}
+
+func (m *MasterFSM) recruitInitialCluster() error {
+    id, err := m.recruitCluster()
+    m.domainPlacementMap["/"] = []ReplicaGroupId{id}
+    return err
 }

@@ -81,7 +81,7 @@ func MakeCluster(n int, fsm raft.FSM, addrs []raft.ServerAddress) *cluster {
 		c.rafts = append(c.rafts, raft)
 	}
 
-	return c
+    return c
 }
 
 type cluster struct {
