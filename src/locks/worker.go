@@ -43,10 +43,12 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     clientAddr := raft.ServerAddress(args[ClientAddrKey])
     switch function {
         case AcquireLockCommand:
-            w.tryAcquireLock(l, clientAddr)
+            response := w.tryAcquireLock(l, clientAddr)
+            return response, nil
         case ReleaseLockCommand:
-            w.releaseLock(l, clientAddr)
-    }
+            response := w.releaseLock(l, clientAddr)
+            return response, nil
+     }
 
     return nil, nil
 }
@@ -105,28 +107,29 @@ func convertFromJSONWorker(byte_arr []byte) (map[Lock]lockState, error) {
 }
 
 
-func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (bool, error) {
+func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
     fmt.Println("worker trying to acquire lock")
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
        Else, return false. */
      if _, ok := w.lockStateMap[l]; !ok {
-         return false, ErrLockDoesntExist
+         return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
      if state.Held {
-         return false, ErrLockHeld
+         return AcquireLockResponse{-1, ErrLockHeld}
      }
      /* need to check if recalcitrant? recalcitrant locks should always be either held or disabled until moved? */
      if state.Disabled {
-         return false, ErrLockDisabled
+         return AcquireLockResponse{-1, ErrLockDisabled}
      }
      state.Held = true
      state.Client = client
-     return true, nil
+     //TODO actually set sequencer
+     return AcquireLockResponse{666, ""} 
 }
 
-func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) error {
+func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockResponse {
     fmt.Println("worker releasing lock")
     /* Check that lock exists, not disabled.
        If not held by this client, return error.
@@ -134,19 +137,19 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) error {
        If recalcitrant, mark as disabled and release, notify master. */
     /* TODO: if recalcitrant, tell master and delete (rebalancing protocol). */
     if _, ok := w.lockStateMap[l]; !ok {
-        return ErrLockDoesntExist
+        return ReleaseLockResponse{ErrLockDoesntExist}
     }
     state := w.lockStateMap[l]
     if !state.Held {
-        return ErrLockNotHeld
+        return ReleaseLockResponse{ErrLockNotHeld}
     }
     if state.Disabled {
-        return ErrLockDisabled
+        return ReleaseLockResponse{ErrLockDisabled}
     }
     if state.Client != client {
-        return ErrBadClientRelease
+        return ReleaseLockResponse{ErrBadClientRelease}
     }
     state.Client = client
     state.Held = false
-    return nil
+    return ReleaseLockResponse{""}
 }

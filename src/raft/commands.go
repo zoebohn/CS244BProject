@@ -171,6 +171,7 @@ type ClientResponse struct {
 
     Success bool
     LeaderAddress ServerAddress
+    ResponseData  []byte 
 }
 
 // See WithRPCHeader.

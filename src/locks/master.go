@@ -47,7 +47,6 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */
 
     fmt.Println("MASTER APPLY")
-    fmt.Println("")
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
     if err != nil {
@@ -56,18 +55,21 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
         fmt.Println(err)
     }
     function := args[FunctionKey]
-    fmt.Println(function)
     switch function {
         case CreateLockCommand:
             l := Lock(args[LockArgKey])
-            m.createLock(l)
+            callback, response := m.createLock(l)
+            return response, callback
         case CreateDomainCommand:
             d := Domain(args[DomainArgKey])
-            m.createLockDomain(d)
+            response := m.createLockDomain(d)
+            return response, nil
         case LocateLockCommand:
             l := Lock(args[LockArgKey])
-            m.findLock(l)
+            response := m.findLock(l)
+            return response, nil
     }
+
 
 
     return nil, nil
@@ -132,7 +134,7 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
     return s, err
 }
 
-func (m *MasterFSM) createLock(l Lock) (func(), error) {
+func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     fmt.Println("master creating lock")
     /* Check if already exists (return false).
       Check that intermediate domains exist. 
@@ -141,19 +143,22 @@ func (m *MasterFSM) createLock(l Lock) (func(), error) {
       numLocksHeld[group]++
       Add lock to lockMap */
     if _, ok := m.lockMap[l]; ok {
-        return nil, ErrLockExists
+        return nil, CreateLockResponse{ErrLockExists}
     }
     if len(string(l)) == 0 {
-        return nil, ErrEmptyPath
+        return nil, CreateLockResponse{ErrEmptyPath}
     }
     domain := getParentDomain(string(l))
+    fmt.Println(domain)
     replicaGroups, ok := m.domainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
-        return nil, ErrNoIntermediateDomain
+        fmt.Println("first error")
+        return nil, CreateLockResponse{ErrNoIntermediateDomain}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
-    if err != nil {
-        return nil, err
+    if err != "" {
+        fmt.Println("second error")
+        return nil, CreateLockResponse{err}
     }
     m.numLocksHeld[replicaGroup]++
     m.lockMap[l] = &masterLockState{ReplicaGroup: replicaGroup, InTransit: true}
@@ -167,44 +172,45 @@ func (m *MasterFSM) createLock(l Lock) (func(), error) {
             command := []byte{} 
             raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
         }
-    return f, nil
+    fmt.Println("lock creation successfull")
+    return f, CreateLockResponse{""}
 }
 
-func (m *MasterFSM) createLockDomain(d Domain) error {
+func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     fmt.Println("master creating domain")
     /* Check if already exists (return false).
        Check that intermediate domains exist.
        Get replica group ID where should be put.
        Add to domainPlacementMap. */
     if _, ok := m.domainPlacementMap[d]; ok {
-       return ErrDomainExists
+       return CreateDomainResponse{ErrDomainExists}
     }
     if len(string(d)) == 0 {
-        return ErrEmptyPath
+        return CreateDomainResponse{ErrEmptyPath}
     }
     domain := getParentDomain(string(d))
     replicaGroups, ok := m.domainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
-        return ErrNoIntermediateDomain
+        return CreateDomainResponse{ErrNoIntermediateDomain}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
-    if err != nil {
-        return err
+    if err != "" {
+        return CreateDomainResponse{err}
     }
     m.domainPlacementMap[d] = []ReplicaGroupId{replicaGroup}
-    return nil
+    return CreateDomainResponse{""}
 }
 
-func (m *MasterFSM) findLock(l Lock) (ReplicaGroupId, []raft.ServerAddress, error) {
+func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
     /* Check that lock exists.
        Check lockMap to find replica group ID. 
        Return replica groupID and servers using clusterMap. */
     lockState, ok := m.lockMap[l]
     if !ok {
-        return -1, nil, ErrLockDoesntExist
+        return LocateLockResponse{-1, nil, ErrLockDoesntExist}
     }
     replicaGroup := lockState.ReplicaGroup
-    return replicaGroup, m.clusterMap[replicaGroup], nil
+    return LocateLockResponse{replicaGroup, m.clusterMap[replicaGroup], ""}
 }
 
 func getParentDomain(path string) Domain {
@@ -219,7 +225,7 @@ func getParentDomain(path string) Domain {
     return Domain(strings.Join(slice, "/"))
 }
 
-func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGroupId, error) {
+func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGroupId, string) {
     if len(replicaGroups) == 0 {
         return -1, ErrNoPlacement
     }
@@ -234,7 +240,7 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     if chosen == -1 {
         return -1, ErrNoPlacement
     }
-    return chosen, nil
+    return chosen, "" 
 }
 
 func (m *MasterFSM) recruitCluster() error {

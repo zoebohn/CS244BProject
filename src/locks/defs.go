@@ -1,7 +1,7 @@
 package locks
 
 import(
-    "errors"
+    "raft"
 )
 
 /* Client RPCs */
@@ -27,18 +27,42 @@ type Lock string
 /* Hierarchical lock domain. */
 type Domain string
 
+
+type LocateLockResponse struct {
+    ReplicaId ReplicaGroupId
+    ServerAddrs []raft.ServerAddress
+    ErrMessage string 
+}
+
+type CreateDomainResponse struct {
+    ErrMessage string
+}
+
+type CreateLockResponse struct {
+    ErrMessage string
+}
+
+type AcquireLockResponse struct {
+    SeqNo Sequencer
+    ErrMessage string
+}
+
+type ReleaseLockResponse struct {
+    ErrMessage string
+}
+
+
 /* TODO: define errors. */
 var(
-    ErrLockExists = errors.New("lock already exists")
-    ErrLockDoesntExist = errors.New("lock doesn't exist")
-    ErrNoIntermediateDomain = errors.New("no intermediate domain")
-    ErrNoPlacement = errors.New("no valid placement found")
-    ErrDomainExists = errors.New("domain already exists")
-    ErrEmptyPath = errors.New("cannot use empty path")
-    ErrLockHeld = errors.New("lock is currently held")
-    ErrLockRecalcitrant = errors.New("lock is recalcitrant")
-    ErrLockDisabled = errors.New("lock is currently disabled")
-    ErrLockNotHeld = errors.New("lock is not currently held")
-    ErrBadClientRelease = errors.New("lock was not acquired by client trying to release it")
-
+    ErrLockExists = "lock already exists"
+    ErrLockDoesntExist = "lock doesn't exist"
+    ErrNoIntermediateDomain = "no intermediate domain"
+    ErrNoPlacement = "no valid placement found"
+    ErrDomainExists = "domain already exists"
+    ErrEmptyPath = "cannot use empty path"
+    ErrLockHeld = "lock is currently held"
+    ErrLockRecalcitrant = "lock is recalcitrant"
+    ErrLockDisabled = "lock is currently disabled"
+    ErrLockNotHeld = "lock is not currently held"
+    ErrBadClientRelease = "lock was not acquired by client trying to release it"
 )

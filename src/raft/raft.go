@@ -7,7 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"time"
-
+    "encoding/json"
 	"github.com/armon/go-metrics"
 )
 
@@ -1400,6 +1400,12 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                 if f.Callback() != nil {
                     go f.Callback()
                 }
+                data, json_err := json.Marshal(f.Response())
+                fmt.Println(f.Response())
+                if json_err != nil {
+                    //TODO
+                }
+                resp.ResponseData = data
                 r.logger.Printf("returned")
             }
             r.logger.Printf("sending response")

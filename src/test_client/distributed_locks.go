@@ -21,12 +21,11 @@ func main() {
     }
     lock := locks.Lock("test_lock")
     fmt.Println("create lock")
-    result, create_err := lc.CreateLock(lock)
-    if !result {
-        fmt.Println("failed to create lock")
-    }
+    create_err := lc.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
+        fmt.Println(create_err)
+        fmt.Println("")
     }
     fmt.Println("acquire lock")
     id, acquire_err := lc.AcquireLock(lock)
