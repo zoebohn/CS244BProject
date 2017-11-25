@@ -49,11 +49,14 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     fmt.Println("MASTER APPLY")
     fmt.Println("")
     args := make(map[string]string)
-    err := json.Unmarshal(log.Data, args)
+    err := json.Unmarshal(log.Data, &args)
     if err != nil {
         //TODO
+        fmt.Println("error in apply")
+        fmt.Println(err)
     }
     function := args[FunctionKey]
+    fmt.Println(function)
     switch function {
         case CreateLockCommand:
             l := Lock(args[LockArgKey])

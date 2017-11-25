@@ -34,7 +34,7 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     // function to call? or maybe we add a log command that's a 
     // client command and unpack function type from the data
     args := make(map[string]string)
-    err := json.Unmarshal(log.Data, args)
+    err := json.Unmarshal(log.Data, &args)
     if err != nil {
         //TODO
     }
