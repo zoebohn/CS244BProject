@@ -42,6 +42,17 @@ type MasterSnapshot struct{
     NextReplicaGroupId  ReplicaGroupId
 }
 
+func CreateMaster() (*MasterFSM) {
+    m := &MasterFSM {
+        lockMap:            make(map[Lock]*masterLockState),
+        clusterMap:         make(map[ReplicaGroupId][]raft.ServerAddress),
+        domainPlacementMap: make(map[Domain][]ReplicaGroupId),
+        numLocksHeld:       make(map[ReplicaGroupId]int),
+        nextReplicaGroupId: 0,
+    }
+    return m
+}
+
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
 func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */

@@ -28,6 +28,13 @@ type lockState struct{
     Disabled        bool
 }
 
+func CreateWorker() (*WorkerFSM) {
+    w := &WorkerFSM {
+        lockStateMap: make(map[Lock]lockState),
+    }
+    return w
+}
+
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
     /* Interpret log to find command. Call appropriate function. */
     // use Data and assume it was in json? check type for what
