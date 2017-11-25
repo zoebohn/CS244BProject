@@ -41,21 +41,7 @@ type ClientRPC struct {
     Args            map[string]string
 }
 
-func (lc *LockClient) CreateLock(l Lock) (bool, error) {
-    args := make(map[string]string)
-    args[FunctionKey] = CreateLockCommand
-    args[LockArgKey] = string(l)
-    data, err := json.Marshal(args)
-    if err != nil {
-        return false, err
-    }
-    resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
-    /* Parse name to get domain. */
-    /* Contact master to create lock entry (master then contacts replica group). */
-    /* Return false if lock already existed. */
-    return true, nil
-}
+/* Worker Requests */
 
 func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     args := make(map[string]string)
@@ -66,8 +52,16 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     if err != nil {
         return -1, err
     }
+    replicaID := lc.locks[l]
+    session, session_err := lc.getSessionForId(replicaID)
+    if session_err != nil {
+        return -1, session_err
+    }
     resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
+    send_err := session.SendRequest(data, &resp)
+    if send_err != nil {
+        return -1, send_err    
+    }
     /* Parse name to get domain. */
     /* If know where lock is stored, open/find connection to contact directly. */
     /* Otherwise, use locate to ask master where stored, then open/find connection. */
@@ -84,13 +78,41 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     if err != nil {
         return err
     }
+    replicaID := lc.locks[l]
+    session, session_err := lc.getSessionForId(replicaID)
+    if session_err != nil {
+        return session_err
+    }
     resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
+    send_err := session.SendRequest(data, &resp)
+    if send_err != nil {
+        return send_err    
+    }
     /* Parse name to get domain. */
     /* If know where lock is stored, open/find connection to contact directly. */
     /* Otherwise, use locate to ask master where stored, then open/find connection. */
     /* Release lock and return sequencer. */
     return nil
+}
+
+/* Master Requests */
+
+func (lc *LockClient) CreateLock(l Lock) (bool, error) {
+    args := make(map[string]string)
+    args[FunctionKey] = CreateLockCommand
+    args[LockArgKey] = string(l)
+    data, err := json.Marshal(args)
+    if err != nil {
+        return false, err
+    }
+    resp := raft.ClientResponse{}
+    send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
+    if send_err != nil {
+        return false, send_err
+    }
+    /* Contact master to create lock entry (master then contacts replica group). */
+    /* Return false if lock already existed. */
+    return true, nil
 }
 
 func (lc *LockClient) CreateDomain(d Domain) (bool, error) {
@@ -102,8 +124,10 @@ func (lc *LockClient) CreateDomain(d Domain) (bool, error) {
         return false, err
     }
     resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
-    /* Parse name to get domain. */
+    send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
+    if send_err != nil {
+        return false, send_err
+    }
     /* Contact master to create domain (master then contacts replica group). */
     /* Return false if domain already exists. */
     return true, nil
@@ -120,7 +144,10 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
         return -1, err
     }
     resp := raft.ClientResponse{}
-    raft.MakeClientRequest(lc.trans.LocalAddr(), data, &resp)
+    send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
+    if send_err != nil {
+        return -1, send_err
+    }
     /* Ask master for location of lock, return replica group ID. */
     /* Master should return the server addresses of the replica group. */
     /* If server addresses of replica group don't have replica group id yet, put
@@ -130,8 +157,14 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
 
 func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) {
     /* Return existing client session or create new client session for replica group ID. */
+    existing := lc.sessions[id]
+    if existing != nil {
+        return existing, nil
+    }
+    server_addrs := lc.replicaServers[id] // TODO @EMMA will we always have this?
+    new_session, err := raft.CreateClientSession(lc.trans, server_addrs)
     /* Return error if don't have server addresses for replica group ID. */
-    return nil, nil
+    return new_session, err
 }
 
 

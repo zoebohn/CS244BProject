@@ -516,7 +516,7 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, en
 
 	// Check for heartbeat fast-path
 	if isHeartbeat {
-		n.heartbeatFnLock.Lock()
+        n.heartbeatFnLock.Lock()
 		fn := n.heartbeatFn
 		n.heartbeatFnLock.Unlock()
 		if fn != nil {

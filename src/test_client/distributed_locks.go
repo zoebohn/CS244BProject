@@ -20,7 +20,10 @@ func main() {
         //TODO
     }
     lock := locks.Lock("test_lock")
+    fmt.Println("create lock")
     lc.CreateLock(lock)
+    fmt.Println("acquire lock")
     lc.AcquireLock(lock)
+    fmt.Println("release lock")
     lc.ReleaseLock(lock)
 }

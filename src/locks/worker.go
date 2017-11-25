@@ -2,6 +2,7 @@ package locks
 
 import(
     "raft"
+    "fmt"
     "io"
     "encoding/json"
     "bytes"
@@ -105,6 +106,7 @@ func convertFromJSONWorker(byte_arr []byte) (map[Lock]lockState, error) {
 
 
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (bool, error) {
+    fmt.Println("worker trying to acquire lock")
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
        Else, return false. */
@@ -125,6 +127,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (bool, err
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) error {
+    fmt.Println("worker releasing lock")
     /* Check that lock exists, not disabled.
        If not held by this client, return error.
        If not recalcitrant, release normally. 

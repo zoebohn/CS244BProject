@@ -2,6 +2,7 @@ package locks
 
 import(
     "raft"
+    "fmt"
     "strings"
     "io"
     "encoding/json"
@@ -127,7 +128,8 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 }
 
 func (m *MasterFSM) createLock(l Lock) (func(), error) {
-   /* Check if already exists (return false).
+    fmt.Println("master creating lock")
+    /* Check if already exists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
       Tell replica group to make that log
@@ -164,6 +166,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), error) {
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) error {
+    fmt.Println("master creating domain")
     /* Check if already exists (return false).
        Check that intermediate domains exist.
        Get replica group ID where should be put.
