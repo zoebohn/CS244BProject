@@ -184,6 +184,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
         fmt.Println("waiting for response")
         _, err = decodeResponse(s.currConn, &response)
         if err != nil {
+            fmt.Println("getting connection to leader addr")
             s.currConn, err = s.trans.getConn(response.LeaderAddress)
         }
         retries--
@@ -224,7 +225,7 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         fmt.Println("waiting for response")
         _, err = decodeResponse(conn, &response)
         if err != nil {
-            conn, err = buildNetConn(response.LeaderAddress)
+            conn, _ = buildNetConn(response.LeaderAddress)
         }
         retries--
     }

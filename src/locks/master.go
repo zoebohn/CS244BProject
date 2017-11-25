@@ -46,6 +46,8 @@ type MasterSnapshot struct{
 func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */
 
+    fmt.Println("MASTER APPLY")
+    fmt.Println("")
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, args)
     if err != nil {
