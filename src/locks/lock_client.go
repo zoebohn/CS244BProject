@@ -86,6 +86,8 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     var response AcquireLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
+        fmt.Println(resp.ResponseData)
+        fmt.Println(response)
         fmt.Println("error unmarshalling acquire")
         //TODO
         fmt.Println(unmarshal_err)
