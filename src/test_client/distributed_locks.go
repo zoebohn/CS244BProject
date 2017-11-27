@@ -22,12 +22,26 @@ func main() {
     } else {
         fmt.Println("successfully created lock client")
     }
+    fmt.Println("")
+    fmt.Println("")
     test_simple(lc)
+    fmt.Println("")
+    fmt.Println("")
     test_double_acquire(lc)
+    fmt.Println("")
+    fmt.Println("")
     test_release_unacquired_lock(lc)
+    fmt.Println("")
+    fmt.Println("")
     test_duplicate_create(lc)
+    fmt.Println("")
+    fmt.Println("")
     test_creating_domains(lc)
+    fmt.Println("")
+    fmt.Println("")
     test_acquire_nonexistant_lock(lc)
+    fmt.Println("")
+    fmt.Println("")
     /* Second client */
     trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
@@ -42,8 +56,14 @@ func main() {
         fmt.Println("successfully created lock client")
     }
     test_race_domain(lc, lc2)
+    fmt.Println("")
+    fmt.Println("")
     test_multiple_acquires_2(lc, lc2)
+    fmt.Println("")
+    fmt.Println("")
     test_release_unacquired_2(lc, lc2)
+    fmt.Println("")
+    fmt.Println("")
 
 }
 

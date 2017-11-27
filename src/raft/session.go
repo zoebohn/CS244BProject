@@ -200,9 +200,7 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
     }
     err = errors.New("")
     /* Send heartbeat to active leader. Connect to active leader if connection no longer to active leader. */
-    fmt.Println("-> starting to send RPC")
     for err != nil {
-        fmt.Println("trying to send RPC")
         if retries <= 0 {
             return errors.New("Failed to find active leader.")
         }
@@ -224,15 +222,12 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         }
         /* Decode response if necesary. Try new server to find leader if necessary. */
         // TODO: try new way to find leader now from heartbeats
-        fmt.Println("waiting for response")
         _, err = decodeResponse(conn, &response)
-        fmt.Println("got response")
         if err != nil {
             conn, _ = buildNetConn(response.LeaderAddress)
         }
         retries--
     }
-    fmt.Println("-> successfully sent RPC")
     return nil
 }
 
