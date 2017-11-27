@@ -27,7 +27,7 @@ func main() {
     test_release_unacquired_lock(lc)
     test_duplicate_create(lc)
     test_creating_domains(lc)
-    
+    test_acquire_nonexistant_lock(lc)
     /* Second client */
     trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
@@ -74,6 +74,18 @@ func test_simple(lc *locks.LockClient) {
     } else {
         fmt.Println("successfully released lock")
     } 
+}
+
+func test_acquire_nonexistant_lock(lc *locks.LockClient) {
+    lock := locks.Lock("doesnotexist")
+    fmt.Println("acquire lock")
+    id, acquire_err := lc.AcquireLock(lock)
+    if id == -1 || acquire_err != nil {
+        fmt.Println("error with acquiring")
+        fmt.Println(acquire_err)
+    } else {
+        fmt.Println("successfully acquired lock")
+    }
 }
 
 func test_double_acquire(lc *locks.LockClient) {
@@ -177,6 +189,18 @@ func test_creating_domains(lc *locks.LockClient) {
         fmt.Println("successfully created bad subdomain")
 
     }
+
+    /* Create root domain */
+    root_domain := locks.Domain("/")
+    create_err = lc.CreateDomain(root_domain)
+    if create_err != nil {
+        fmt.Println("error with creating root domain")
+        fmt.Println(create_err)
+    } else {
+        fmt.Println("successfully created bad root domain")
+
+    }
+
 }
 
 /* Two clients race to create a domain */

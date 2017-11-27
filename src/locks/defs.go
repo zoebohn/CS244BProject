@@ -65,7 +65,6 @@ var(
     ErrEmptyPath = "cannot use empty path"
     ErrLockHeld = "lock is currently held"
     ErrLockRecalcitrant = "lock is recalcitrant"
-    ErrLockDisabled = "lock is currently disabled"
     ErrLockNotHeld = "lock is not currently held"
     ErrBadClientRelease = "lock was not acquired by client trying to release it"
     ErrNoServersForId = "can't find servers associated with replica id"
