@@ -185,7 +185,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
         _, err = decodeResponse(s.currConn, &response)
         if err != nil {
             fmt.Println("getting connection to leader addr")
-            s.currConn, err = s.trans.getConn(response.LeaderAddress)
+            s.currConn, _ = s.trans.getConn(response.LeaderAddress)
         }
         retries--
     }

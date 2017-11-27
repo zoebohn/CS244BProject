@@ -34,6 +34,8 @@ func CreateWorker() (*WorkerFSM) {
 }
 
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
+    fmt.Println("APPLY WORKER")
+    fmt.Println("")
     /* Interpret log to find command. Call appropriate function. */
     // use Data and assume it was in json? check type for what
     // function to call? or maybe we add a log command that's a 
@@ -116,7 +118,9 @@ func convertFromJSONWorker(byte_arr []byte) (map[Lock]lockState, error) {
 
 
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
+    fmt.Println("")
     fmt.Println("worker trying to acquire lock")
+    fmt.Println("")
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
        Else, return false. */
