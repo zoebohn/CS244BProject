@@ -17,7 +17,10 @@ func main() {
     }
     lc, err := locks.CreateLockClient(trans, masterServers)
     if err != nil {
-        //TODO
+        fmt.Println("error with creating lock client")
+        fmt.Println(err)
+    } else {
+        fmt.Println("successfully created lock client")
     }
     lock := locks.Lock("test_lock")
     fmt.Println("create lock")
@@ -25,17 +28,23 @@ func main() {
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-        fmt.Println("")
+    } else {
+        fmt.Println("successfully created lock")
     }
     fmt.Println("acquire lock")
     id, acquire_err := lc.AcquireLock(lock)
-    if id == -1 {
-        fmt.Println("failed to acquire lock")
-    }
-    if acquire_err != nil {
+    if id == -1 || acquire_err != nil {
         fmt.Println("error with acquiring")
+        fmt.Println(acquire_err)
+    } else {
+        fmt.Println("successfully acquired lock")
     }
     fmt.Println("release lock")
-    lc.ReleaseLock(lock)
-    fmt.Println("done releasing lock")
+    release_err := lc.ReleaseLock(lock)
+    if release_err != nil {
+        fmt.Println("error with releasing")
+        fmt.Println(release_err)
+    } else {
+        fmt.Println("successfully released lock")
+    }
 }

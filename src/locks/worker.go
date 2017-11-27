@@ -11,10 +11,12 @@ import(
 type WorkerFSM struct{
     /* Map of lock to lock state. */
     lockStateMap    map[Lock]lockState
+    sequencer       Sequencer
 }
 
 type WorkerSnapshot struct {
-    lockStateMap map[Lock]lockState
+    LockStateMap map[Lock]lockState
+    SequencerInt int
 }
 
 type lockState struct{
@@ -31,6 +33,7 @@ func CreateWorker(n int) ([]raft.FSM) {
     for i := range(workers) {
         workers[i] = &WorkerFSM {
             lockStateMap: make(map[Lock]lockState),
+            sequencer: 0,
         }
     }
     return workers
@@ -72,25 +75,26 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
     if read_err != nil {
         return read_err
     }
-    lockStateMapRestored, err := convertFromJSONWorker(buffer.Bytes())
+    snapshotRestored, err := convertFromJSONWorker(buffer.Bytes())
     if err != nil {
         return err
     }
-    w.lockStateMap = lockStateMapRestored
+    w.lockStateMap = snapshotRestored.LockStateMap
+    w.sequencer = Sequencer(snapshotRestored.SequencerInt)
     return nil
 }
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
     /* TODO need to lock fsm? */
-    s := WorkerSnapshot{lockStateMap: w.lockStateMap}
+    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerInt: int(w.sequencer)}
     return s, nil
 }
 
 func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
     /* Write lockStateMap to SnapshotSink */
     /* TODO needs to be safe to invoke this with concurrent apply - they actually lock it in there implementation */
-    json, json_err := convertToJSON(s.lockStateMap)
+    json, json_err := convertToJSON(s)
     if json_err != nil {
         return json_err
     }
@@ -108,15 +112,15 @@ func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
 func (s WorkerSnapshot) Release() {
 }
 
-func convertToJSON(lockStateMap map[Lock]lockState) ([]byte, error) {
-    b, err := json.Marshal(lockStateMap)
+func convertToJSON(workerSnapshot WorkerSnapshot) ([]byte, error) {
+    b, err := json.Marshal(workerSnapshot)
     return b, err
 }
 
-func convertFromJSONWorker(byte_arr []byte) (map[Lock]lockState, error) {
-    lockStateMap := map[Lock]lockState{}
-    err := json.Unmarshal(byte_arr, &lockStateMap)
-    return lockStateMap, err
+func convertFromJSONWorker(byte_arr []byte) (WorkerSnapshot, error) {
+    var workerSnapshot WorkerSnapshot
+    err := json.Unmarshal(byte_arr, &workerSnapshot)
+    return workerSnapshot, err
 }
 
 
@@ -137,7 +141,8 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      state.Held = true
      state.Client = client
      //TODO actually set sequencer
-     return AcquireLockResponse{666, ""} 
+     w.sequencer += 1
+     return AcquireLockResponse{w.sequencer, ""} 
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockResponse {
