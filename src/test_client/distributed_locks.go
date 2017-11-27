@@ -27,7 +27,7 @@ func main() {
         fmt.Println(create_err)
         fmt.Println("")
     }
-/*    fmt.Println("acquire lock")
+    fmt.Println("acquire lock")
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 {
         fmt.Println("failed to acquire lock")
@@ -38,5 +38,4 @@ func main() {
     fmt.Println("release lock")
     lc.ReleaseLock(lock)
     fmt.Println("done releasing lock")
-*/
 }
