@@ -65,8 +65,6 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
         if lookup_err != nil {
             fmt.Println("error with lookup")
         } else {
-            fmt.Println("AT ID")
-            fmt.Println(replicaID)
             lc.locks[l] = replicaID
         }
     }
@@ -134,6 +132,8 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     var response ReleaseLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
+        fmt.Println(resp.ResponseData)
+        fmt.Println(response)
         fmt.Println("error unmarshalling release")
         //TODO
         fmt.Println(unmarshal_err)
