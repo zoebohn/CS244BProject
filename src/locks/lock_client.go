@@ -243,7 +243,10 @@ func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) 
     if existing != nil {
         return existing, nil
     }
-    server_addrs := lc.replicaServers[id] // TODO @EMMA will we always have this?
+    server_addrs, ok := lc.replicaServers[id] // TODO @EMMA will we always have this? @ZOE need to make sure it's not null or we call askMasterToLocate if not true, adding error so we can figure out if we mess this up
+    if !ok {
+        return nil, errors.New(ErrNoServersForId)
+    }
     new_session, err := raft.CreateClientSession(lc.trans, server_addrs)
     /* Return error if don't have server addresses for replica group ID. */
     return new_session, err

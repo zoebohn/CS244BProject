@@ -10,7 +10,7 @@ import(
 )
 
 // TODO: should return error if can't do setup
-func MakeCluster(n int, fsm raft.FSM, addrs []raft.ServerAddress) *cluster {
+func MakeCluster(n int, fsms []raft.FSM, addrs []raft.ServerAddress) *cluster {
     conf := raft.DefaultConfig()
     bootstrap := true
 
@@ -33,7 +33,7 @@ func MakeCluster(n int, fsm raft.FSM, addrs []raft.ServerAddress) *cluster {
 		store := raft.NewInmemStore()
 		c.dirs = append(c.dirs, dir)
 		c.stores = append(c.stores, store)
-		c.fsms = append(c.fsms, fsm)
+        c.fsms = append(c.fsms, fsms[i])
 
 
 	    snap, err := raft.NewFileSnapshotStore(dir, 3, nil)

@@ -42,20 +42,31 @@ type MasterSnapshot struct{
     NextReplicaGroupId  ReplicaGroupId
 }
 
-func CreateMaster() (*MasterFSM) {
-    m := &MasterFSM {
-        lockMap:            make(map[Lock]*masterLockState),
-        clusterMap:         make(map[ReplicaGroupId][]raft.ServerAddress),
-        domainPlacementMap: make(map[Domain][]ReplicaGroupId),
-        numLocksHeld:       make(map[ReplicaGroupId]int),
-        nextReplicaGroupId: 0,
+func CreateMasters (n int) ([]raft.FSM) {
+    masters := make([]*MasterFSM, n)
+    for i := range(masters) {
+        masters[i] = &MasterFSM {
+            lockMap:            make(map[Lock]*masterLockState),
+            clusterMap:         make(map[ReplicaGroupId][]raft.ServerAddress),
+            domainPlacementMap: make(map[Domain][]ReplicaGroupId),
+            numLocksHeld:       make(map[ReplicaGroupId]int),
+            nextReplicaGroupId: 0,
+        }
     }
-    err := m.recruitInitialCluster()
+    if n <= 0 {
+        fmt.Println("Cannot have number of masters <= 0")
+    }
+    err := recruitInitialCluster(masters)
     if err != nil {
         //TODO
         fmt.Println(err)
     }
-    return m
+    fsms := make([]raft.FSM, n)
+    for i, m := range(masters) {
+        fsms[i] = m
+    }
+
+    return fsms
 }
 
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
@@ -153,16 +164,20 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 }
 
 func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
-    fmt.Println("master creating lock")
+    fmt.Println("master creating lock with name ", string(l))
+    fmt.Println("Lock map ", m.lockMap)
     /* Check if already exists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
       Tell replica group to make that log
       numLocksHeld[group]++
       Add lock to lockMap */
+    // TODO: sanitize lock name?
     if _, ok := m.lockMap[l]; ok {
+        fmt.Println("duplicate")
         return nil, CreateLockResponse{ErrLockExists}
     }
+    fmt.Println("no duplicate found")
     if len(string(l)) == 0 {
         return nil, CreateLockResponse{ErrEmptyPath}
     }
@@ -272,17 +287,22 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
-func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
-    MakeCluster(numClusterServers, CreateWorker(), recruitAddrs[m.nextReplicaGroupId])
-    m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId]
-    m.numLocksHeld[m.nextReplicaGroupId] = 0
-    id := m.nextReplicaGroupId //TODO race condition?
-    m.nextReplicaGroupId++
+func recruitCluster(masters []*MasterFSM) (ReplicaGroupId, error) {
+    workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
+    MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
+    id := masters[0].nextReplicaGroupId //TODO race condition?
+    for i := range(masters) {
+        masters[i].clusterMap[masters[i].nextReplicaGroupId] = workerAddrs
+        masters[i].numLocksHeld[masters[i].nextReplicaGroupId] = 0
+        masters[i].nextReplicaGroupId++
+    }
     return id, nil
 }
 
-func (m *MasterFSM) recruitInitialCluster() error {
-    id, err := m.recruitCluster()
-    m.domainPlacementMap["/"] = []ReplicaGroupId{id}
+func recruitInitialCluster(masters []*MasterFSM) error {
+    id, err := recruitCluster(masters)
+    for i := range(masters) {
+        masters[i].domainPlacementMap["/"] = []ReplicaGroupId{id}
+    }
     return err
 }

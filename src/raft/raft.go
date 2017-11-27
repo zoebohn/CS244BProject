@@ -1388,8 +1388,9 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
             // Serializing client requests, TODO paralellize
             var rpcErr error
-            r.logger.Printf("processing requests")
+            r.logger.Printf("processing requests %v", len(c.Entries))
             for _,entry := range(c.Entries) {
+                r.logger.Printf("***going to apply");
                 f := r.Apply(entry.Data, 0) //TODO: change to configurable value
                 if f.Error() != nil {
                     r.logger.Printf("err: %v",f.Error())

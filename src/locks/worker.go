@@ -26,11 +26,14 @@ type lockState struct{
     Recalcitrant    bool
 }
 
-func CreateWorker() (*WorkerFSM) {
-    w := &WorkerFSM {
-        lockStateMap: make(map[Lock]lockState),
+func CreateWorker(n int) ([]raft.FSM) {
+    workers := make([]raft.FSM, n)
+    for i := range(workers) {
+        workers[i] = &WorkerFSM {
+            lockStateMap: make(map[Lock]lockState),
+        }
     }
-    return w
+    return workers
 }
 
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
