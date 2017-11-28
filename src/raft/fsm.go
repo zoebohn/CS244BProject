@@ -55,7 +55,6 @@ func (r *Raft) runFSM() {
         var callback func()
 		if req.log.Type == LogCommand {
 			start := time.Now()
-			r.logger.Printf("applying tuple")
             resp, callback = r.fsm.Apply(req.log)
 			metrics.MeasureSince([]string{"raft", "fsm", "apply"}, start)
 		}

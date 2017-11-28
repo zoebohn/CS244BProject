@@ -54,7 +54,7 @@ func CreateMasters (n int) ([]raft.FSM) {
         }
     }
     if n <= 0 {
-        fmt.Println("Cannot have number of masters <= 0")
+        fmt.Println("MASTER: Cannot have number of masters <= 0")
     }
     err := recruitInitialCluster(masters)
     if err != nil {
@@ -73,17 +73,14 @@ func CreateMasters (n int) ([]raft.FSM) {
 func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
     /* Interpret log to find command. Call appropriate function. */
 
-    fmt.Println("MASTER APPLY")
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
     if err != nil {
         //TODO
-        fmt.Println("error in apply")
+        fmt.Println("MASTER: error in apply")
         fmt.Println(err)
     }
     function := args[FunctionKey]
-    fmt.Println(function)
-    fmt.Println("")
     switch function {
         case CreateLockCommand:
             l := Lock(args[LockArgKey])
@@ -164,8 +161,8 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 }
 
 func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
-    fmt.Println("master creating lock with name ", string(l))
-    fmt.Println("Lock map ", m.lockMap)
+    fmt.Println("MASTER: master creating lock with name ", string(l))
+    fmt.Println("MASTER: Lock map ", m.lockMap)
     /* Check if already exists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
@@ -174,23 +171,19 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
       Add lock to lockMap */
     // TODO: sanitize lock name?
     if _, ok := m.lockMap[l]; ok {
-        fmt.Println("duplicate")
         return nil, CreateLockResponse{ErrLockExists}
     }
-    fmt.Println("no duplicate found")
     if len(string(l)) == 0 {
         return nil, CreateLockResponse{ErrEmptyPath}
     }
     domain := getParentDomain(string(l))
-    fmt.Println(domain)
+    fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     replicaGroups, ok := m.domainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
-        fmt.Println("first error")
         return nil, CreateLockResponse{ErrNoIntermediateDomain}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
     if err != "" {
-        fmt.Println("second error")
         return nil, CreateLockResponse{err}
     }
     m.numLocksHeld[replicaGroup]++
@@ -201,27 +194,24 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     /* TODO: mark not as transit when receive response from worker cluster. */
     /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
     f := func(){
-            fmt.Println("CALLBACK")
             args := make(map[string]string)
             args[FunctionKey] = AddLockCommand
             args[LockArgKey] = string(l)
             command, json_err := json.Marshal(args)
             if json_err != nil {
                 //TODO
-                fmt.Println("JSON ERROR")
+                fmt.Println("MASTER: JSON ERROR")
             }
             send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
             if send_err != nil {
-                fmt.Println("error while sending")
+                fmt.Println("MASTER: error while sending")
             }
-            fmt.Println("CALLBACK DONE")
         }
-    fmt.Println("lock creation successfull")
     return f, CreateLockResponse{""}
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
-    fmt.Println("master creating domain")
+    fmt.Println("MASTER: master creating domain ", string(d))
     /* Check if already exists (return false).
        Check that intermediate domains exist.
        Get replica group ID where should be put.

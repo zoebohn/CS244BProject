@@ -1375,22 +1375,17 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
             _, ok := r.leaderState.clientSessions[c.ClientAddr]
             // If first session, start heartbeat loop.
             if !ok {
-                r.logger.Printf("starting heartbeat loop")
                 r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
                 r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
                 go r.clientSessionHeartbeatLoop(c.ClientAddr)
             }
-            r.logger.Printf("adding to heartbeatCh")
             r.leaderState.clientSessions[c.ClientAddr].heartbeatCh <- true
-            r.logger.Printf("added to heartbeatCh")
         }
         // Put in applyCh
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
             // Serializing client requests, TODO paralellize
             var rpcErr error
-            r.logger.Printf("processing requests %v", len(c.Entries))
             for _,entry := range(c.Entries) {
-                r.logger.Printf("***going to apply");
                 f := r.Apply(entry.Data, 0) //TODO: change to configurable value
                 if f.Error() != nil {
                     r.logger.Printf("err: %v",f.Error())
@@ -1399,10 +1394,7 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                 }
                 /* If callback, make leader execute callback */
                 if f.Callback() != nil {
-                    fmt.Println("calling callback")
                     f.Callback()()
-                } else {
-                    fmt.Println("callback was nil")
                 }
                 data, json_err := json.Marshal(f.Response())
                 fmt.Println(f.Response())
@@ -1410,23 +1402,19 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                     //TODO
                 }
                 resp.ResponseData = data
-                r.logger.Printf("returned")
             }
-            r.logger.Printf("sending response")
             rpc.Respond(resp, rpcErr)
             // TODO: might want to also extract response from f
         }(r, resp, rpc, c)
     } else {
         rpcErr = ErrNotLeader
         resp.Success = false
-        r.logger.Printf("sending not leader response")
         rpc.Respond(resp, rpcErr)
     }
 }
 
 func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
     for {
-        r.logger.Printf("wait")
         select {
         case <- r.leaderState.clientSessions[clientAddr].heartbeatCh:
             r.leaderState.clientSessions[clientAddr].lastContact = time.Now()
@@ -1437,7 +1425,6 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
             delete(r.leaderState.clientSessions, clientAddr)
             return
         }
-        r.logger.Printf("was triggered")
     }
 }
 
