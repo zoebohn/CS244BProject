@@ -68,4 +68,5 @@ var(
     ErrLockNotHeld = "lock is not currently held"
     ErrBadClientRelease = "lock was not acquired by client trying to release it"
     ErrNoServersForId = "can't find servers associated with replica id"
+    ErrCannotLocateLock = "cannot locate lock"
 )

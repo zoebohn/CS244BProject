@@ -66,7 +66,6 @@ func main() {
     test_release_unacquired_2(lc, lc2)
     fmt.Println("")
     fmt.Println("")
-
 }
 
 /* Create, acquire, and release lock; one client */

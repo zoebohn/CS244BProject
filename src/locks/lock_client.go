@@ -64,6 +64,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
         replicaID = new_id
         if lookup_err != nil {
             fmt.Println("LOCK-CLIENT: error with lookup ", string(l))
+            return -1, errors.New(ErrCannotLocateLock)
         } else {
             lc.locks[l] = replicaID
         }
