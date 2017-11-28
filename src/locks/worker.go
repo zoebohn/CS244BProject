@@ -140,7 +140,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      }
      state.Held = true
      state.Client = client
-     //TODO actually set sequencer
+     w.lockStateMap[l] = state
      w.sequencer += 1
      return AcquireLockResponse{w.sequencer, ""} 
 }
@@ -164,6 +164,7 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockRe
     }
     state.Client = client
     state.Held = false
+    w.lockStateMap[l] = state
     return ReleaseLockResponse{""}
 }
 
