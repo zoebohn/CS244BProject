@@ -168,3 +168,11 @@ func (w *WorkerFSM) addLock(l Lock) {
     fmt.Println("WORKER: adding lock ", string(l))
     w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
 }
+
+func (w *WorkerFSM) handleRebalanceRequest() {
+    //TODO
+}
+
+func (w *WorkerFSM) releaseRecalcitrantLock() {
+    //TODO
+}

@@ -33,6 +33,9 @@ type masterLockState struct {
 var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}}
 const numClusterServers = 3
 
+/* Constants for rebalancing */
+const REBALANCE_THRESHOLD = 20
+
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
     LockMap             map[Lock]*masterLockState
@@ -163,7 +166,10 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     fmt.Println("MASTER: master creating lock with name ", string(l))
     fmt.Println("MASTER: Lock map ", m.lockMap)
-    /* Check if already exists (return false).
+    
+    
+    
+    /* Check if already eddxists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
       Tell replica group to make that log
@@ -202,11 +208,17 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
                 //TODO
                 fmt.Println("MASTER: JSON ERROR")
             }
-            send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{})
+            send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{}) //TODO should this really be a client response??
             if send_err != nil {
                 fmt.Println("MASTER: error while sending")
             }
         }
+
+       //TODO do this earlier in method?
+    if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
+        m.rebalance()
+    }
+
     return f, CreateLockResponse{""}
 }
 
@@ -282,6 +294,7 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
+// @Emma why is this an array??
 func recruitCluster(masters []*MasterFSM) (ReplicaGroupId, error) {
     workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
     MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
@@ -300,4 +313,48 @@ func recruitInitialCluster(masters []*MasterFSM) error {
         masters[i].domainPlacementMap["/"] = []ReplicaGroupId{id}
     }
     return err
+}
+
+func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
+    /* Split managed locks into 2 - tell worker */
+    locks_to_move = m.getLocksToRebalance(replicaGroup)
+    newReplicaGroup, err := recruitCluster([m]) //TODO is this right? why array??
+    if err != nil {
+        //TODO
+        fmt.Println("MASTER: error recruiting")
+    }
+    rebalancing_func := func() {
+        /* Send RPC to worker with locks_to_move */
+        args := make(map[string]string)
+        args[LocksToMoveKey] = locks_to_move
+        command, json_err := json.Marshal(args)
+        if json_err != nil {
+            //TODO
+            fmt.Println("MASTER: JSON ERROR")
+        }
+        rebalancing_resp := raft.RebalancingResponse{}
+        send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &rebalancing_resp)
+        /* Get back recalcitrant locks */
+        var recalcitrant_locks map[string][int]
+        unmarshal_err := json.Unmarshal(rebalancing_resp.Recalcitrants, &recalcitrant_locks)
+        if unmarshal_err != nil {
+            //TODO
+            fmt.Println("LOCK-CLIENT: error unmarshalling")
+        }
+        num_locks_moving_now := (len(lock_to_move) - len(recalcitrant_locks))
+        numLocksHeld[replicaGroup] -= num_locks_moving_now 
+        /* Update lock map for all but recalcitrant locks */
+        for curr_lock, i := range locks_to_move {
+            if val, ok := recalcitrant_locks[curr_lock]; !ok {
+                state_to_update := lockMap[curr_lock]
+                state_to_update.ReplicaGroup = newReplicaGroup
+                lockMap[curr_lock] = state_to_update
+            }
+        }
+        /* //TODO Update domain placement map */
+            numLocksHeld[newReplicaGroup] += num_locks_moving_now
+        }
+    }
+
+    return rebalancing_func
 }
