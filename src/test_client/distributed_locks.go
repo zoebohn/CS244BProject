@@ -22,7 +22,7 @@ func main() {
     } else {
         fmt.Println("successfully created lock client")
     }
-/*    fmt.Println("")
+    fmt.Println("")
     fmt.Println("")
     test_simple(lc)
     fmt.Println("")
@@ -35,15 +35,15 @@ func main() {
     fmt.Println("")
     test_duplicate_create(lc)
     fmt.Println("")
-  */  fmt.Println("")
+    fmt.Println("")
     test_creating_domains(lc)
-    /*fmt.Println("")
+    fmt.Println("")
     fmt.Println("")
     test_acquire_nonexistant_lock(lc)
     fmt.Println("")
     fmt.Println("")
-    *//* Second client */
-    /*trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    /* Second client */
+    trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
         fmt.Println("err: ", err)
         return
@@ -66,7 +66,7 @@ func main() {
     test_release_unacquired_2(lc, lc2)
     fmt.Println("")
     fmt.Println("")
-*/
+
 }
 
 /* Create, acquire, and release lock; one client */
@@ -227,7 +227,7 @@ func test_creating_domains(lc *locks.LockClient) {
 
 /* Two clients race to create a domain */
 func test_race_domain(lc1 *locks.LockClient, lc2 *locks.LockClient) {
-    domain := locks.Domain("/first")
+    domain := locks.Domain("/firsty")
     fmt.Println("create domain")
     create_err := lc1.CreateDomain(domain)
     if create_err != nil {
@@ -299,7 +299,7 @@ func test_release_unacquired_2(lc1 *locks.LockClient, lc2 *locks.LockClient) {
     release_err := lc2.ReleaseLock(lock)
     if release_err != nil {
         fmt.Println("error with bad release")
-        fmt.Println(acquire_err)
+        fmt.Println(release_err)
     } else {
         fmt.Println("successfully illegally released")
     }
