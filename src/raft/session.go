@@ -43,10 +43,8 @@ func MakeClientRequest(address ServerAddress, data []byte, resp *ClientResponse)
     if err := sendRPC(netConn, rpcClientRequest, clientRequest); err != nil {
         return err
     }
-    fmt.Println("sent RPC")
     // Decode response.
     _, err = decodeResponse(netConn, resp)
-    fmt.Println("got response")
     return err
 }
 
@@ -181,10 +179,8 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
         }
         /* Decode response if necesary. Try new server to find leader if necessary. */
         // TODO: try new way to find leader now from heartbeats
-        fmt.Println("waiting for response")
         _, err = decodeResponse(s.currConn, &response)
         if err != nil {
-            fmt.Println("getting connection to leader addr")
             s.currConn, _ = s.trans.getConn(response.LeaderAddress)
         }
         retries--

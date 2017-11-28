@@ -40,8 +40,6 @@ func CreateWorker(n int) ([]raft.FSM) {
 }
 
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
-    fmt.Println("APPLY WORKER")
-    fmt.Println("")
     /* Interpret log to find command. Call appropriate function. */
     // use Data and assume it was in json? check type for what
     // function to call? or maybe we add a log command that's a 
@@ -125,9 +123,7 @@ func convertFromJSONWorker(byte_arr []byte) (WorkerSnapshot, error) {
 
 
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
-    fmt.Println("")
-    fmt.Println("worker trying to acquire lock")
-    fmt.Println("")
+    fmt.Println("WORKER: trying to acquire lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
        Else, return false. */
@@ -142,11 +138,11 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      state.Client = client
      w.lockStateMap[l] = state
      w.sequencer += 1
-     return AcquireLockResponse{w.sequencer, ""} 
+     return AcquireLockResponse{w.sequencer, ""}
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockResponse {
-    fmt.Println("worker releasing lock")
+    fmt.Println("WORKER: releasing lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held by this client, return error.
        If not recalcitrant, release normally. 
@@ -169,6 +165,6 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockRe
 }
 
 func (w *WorkerFSM) addLock(l Lock) {
-    fmt.Println("adding lock")
+    fmt.Println("WORKER: adding lock ", string(l))
     w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
 }

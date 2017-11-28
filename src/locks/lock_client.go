@@ -59,11 +59,11 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     }
     replicaID, ok := lc.locks[l]
     if !ok {
-        fmt.Println("must locate lock")
+        fmt.Println("LOCK-CLIENT: must locate lock ", string(l))
         new_id, lookup_err := lc.askMasterToLocate(l)
         replicaID = new_id
         if lookup_err != nil {
-            fmt.Println("error with lookup")
+            fmt.Println("LOCK-CLIENT: error with lookup ", string(l))
         } else {
             lc.locks[l] = replicaID
         }
@@ -86,7 +86,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     if unmarshal_err != nil {
         fmt.Println(resp.ResponseData)
         fmt.Println(response)
-        fmt.Println("error unmarshalling acquire")
+        fmt.Println("LOCK-CLIENT: error unmarshalling acquire")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -107,11 +107,11 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     }
     replicaID, ok := lc.locks[l]
     if !ok {
-        fmt.Println("must locate lock")
+        fmt.Println("LOCK-CLIENT: must locate lock ", string(l))
         new_id, lookup_err := lc.askMasterToLocate(l)
         replicaID = new_id
         if lookup_err != nil {
-            fmt.Println("error with lookup")
+            fmt.Println("LOCK-CLIENT: error with lookup for ", string(l))
         } else {
             lc.locks[l] = replicaID
         }
@@ -134,7 +134,7 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     if unmarshal_err != nil {
         fmt.Println(resp.ResponseData)
         fmt.Println(response)
-        fmt.Println("error unmarshalling release")
+        fmt.Println("LOCK-CLIENT: error unmarshalling release")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -164,7 +164,7 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
     var response CreateLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling create")
+        fmt.Println("LOCK-CLIENT: error unmarshalling create")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -192,7 +192,7 @@ func (lc *LockClient) CreateDomain(d Domain) (error) {
     var response CreateDomainResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling")
+        fmt.Println("LOCK-CLIENT: error unmarshalling")
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -224,7 +224,7 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
     var located LocateLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &located)
     if unmarshal_err != nil {
-        fmt.Println("error unmarshalling")
+        fmt.Println("LOCK-CLIENT: error unmarshalling")
         //TODO
         fmt.Println(unmarshal_err)
     }
