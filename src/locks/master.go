@@ -234,6 +234,8 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     }
     domain := getParentDomain(string(d))
     replicaGroups, ok := m.domainPlacementMap[domain]
+    fmt.Println(domain)
+    fmt.Println("HERE")
     if !ok || len(replicaGroups) == 0 {
         return CreateDomainResponse{ErrNoIntermediateDomain}
     }
@@ -258,15 +260,18 @@ func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
 }
 
 func getParentDomain(path string) Domain {
-    /* Set root as parent of all directories */
-    slice := []string{"/"}
     split := strings.Split(path, "/")
+    /* Set root as parent of all directories */
+    slice := []string{}
     for _, s := range(split) {
+        if s == "" {
+            continue
+        }
         slice = append(slice, s)
     }
     /* Remove last element. */
     slice = slice[:len(slice)-1]
-    return Domain(strings.Join(slice, "/"))
+    return Domain("/" + strings.Join(slice, "/"))
 }
 
 func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGroupId, string) {
