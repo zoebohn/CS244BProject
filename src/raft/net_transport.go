@@ -281,7 +281,6 @@ func (n *NetworkTransport) getConn(target ServerAddress) (*netConn, error) {
 	if err != nil {
 		return nil, err
 	}
-    n.logger.Printf("successfully dialed, %v, %v", conn.RemoteAddr(), conn.LocalAddr())
 
 	// Wrap the conn
 	netConn := &netConn{
@@ -415,10 +414,8 @@ func (n *NetworkTransport) DecodePeer(buf []byte) ServerAddress {
 // listen is used to handling incoming connections.
 func (n *NetworkTransport) listen() {
 	for {
-        n.logger.Printf("listening at %v", n.stream.Addr())
         // Accept incoming connections
 		conn, err := n.stream.Accept()
-		n.logger.Printf("ACCEPT")
         if err != nil {
 			if n.IsShutdown() {
                 n.logger.Printf("Shutting down")
@@ -432,7 +429,6 @@ func (n *NetworkTransport) listen() {
 		// Handle the connection in dedicated routine
 		go n.handleConn(conn)
 	}
-    n.logger.Printf("exiting listen")
 }
 
 // handleConn is used to handle an inbound connection for its lifespan.
