@@ -20,6 +20,7 @@ type MasterFSM struct {
     numLocksHeld        map[ReplicaGroupId]int
     /* Next replica group ID. */
     nextReplicaGroupId  ReplicaGroupId
+    masterCluster       []raft.ServerAddress
 }
 
 type masterLockState struct {
@@ -43,9 +44,10 @@ type MasterSnapshot struct{
     DomainPlacementMap  map[Domain][]ReplicaGroupId
     NumLocksHeld        map[ReplicaGroupId]int
     NextReplicaGroupId  ReplicaGroupId
+    MasterCluster       []raft.ServerAddress
 }
 
-func CreateMasters (n int) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -54,6 +56,7 @@ func CreateMasters (n int) ([]raft.FSM) {
             domainPlacementMap: make(map[Domain][]ReplicaGroupId),
             numLocksHeld:       make(map[ReplicaGroupId]int),
             nextReplicaGroupId: 0,
+            masterCluster:      clusterAddrs,
         }
     }
     if n <= 0 {
@@ -97,9 +100,11 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
             l := Lock(args[LockArgKey])
             response := m.findLock(l)
             return response, nil
-    }
-
-
+        case ReleasedRecalcitrantCommand:
+            l := Lock(args[LockArgKey])
+            m.handleReleasedRecalcitrant(l)
+            return nil, nil
+        }
 
     return nil, nil
 }
@@ -296,7 +301,8 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
 
 func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
     workerAddrs := recruitAddrs[m.nextReplicaGroupId]
-    MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
+    /* TODO problem, we only want to create the cluster once*/
+    MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
     id := m.nextReplicaGroupId //TODO race condition?
     m.clusterMap[m.nextReplicaGroupId] = workerAddrs
     m.numLocksHeld[m.nextReplicaGroupId] = 0
@@ -304,10 +310,9 @@ func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
     return id, nil
 }
 
-// @Emma why is this an array??
 func recruitInitialCluster(masters []*MasterFSM) (error) {
     workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
-    MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
+    MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].masterCluster), workerAddrs)
     id := masters[0].nextReplicaGroupId //TODO race condition?
     for i := range(masters) {
         masters[i].clusterMap[masters[i].nextReplicaGroupId] = workerAddrs
@@ -375,6 +380,6 @@ func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) []Lock {
     return nil //TODO
 }
 
-func (m *MasterFSM) handleRecalcitrantLock(l Lock) {
+func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) {
     // TODO
 }

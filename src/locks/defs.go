@@ -19,6 +19,7 @@ const LocksToMoveKey string = "locks-to-move"
 /* Master -> Worker RPCs */
 const AddLockCommand string = "add-lock"
 const RebalanceCommand string = "rebalance"
+const ReleasedRecalcitrantCommand string = "rel-recal"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int

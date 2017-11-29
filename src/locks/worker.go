@@ -13,11 +13,13 @@ type WorkerFSM struct{
     /* Map of lock to lock state. */
     lockStateMap    map[Lock]lockState
     sequencer       Sequencer
+    masterCluster   []raft.ServerAddress
 }
 
 type WorkerSnapshot struct {
     LockStateMap map[Lock]lockState
     SequencerInt int
+    MasterCluster []raft.ServerAddress
 }
 
 type lockState struct{
@@ -29,12 +31,13 @@ type lockState struct{
     Recalcitrant    bool
 }
 
-func CreateWorker(n int) ([]raft.FSM) {
+func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     workers := make([]raft.FSM, n)
     for i := range(workers) {
         workers[i] = &WorkerFSM {
             lockStateMap: make(map[Lock]lockState),
             sequencer: 0,
+            masterCluster: masterCluster,
         }
     }
     return workers
@@ -64,8 +67,8 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
         case ReleaseLockCommand:
             l := Lock(args[LockArgKey])
             clientAddr := raft.ServerAddress(args[ClientAddrKey])
-            response := w.releaseLock(l, clientAddr)
-            return response, nil
+            response, callback := w.releaseLock(l, clientAddr)
+            return response, callback
         case RebalanceCommand:
             locks_to_move_string := strings.Split(args[LocksToMoveKey], ";")
             var locks_to_move []Lock
@@ -91,13 +94,14 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
     }
     w.lockStateMap = snapshotRestored.LockStateMap
     w.sequencer = Sequencer(snapshotRestored.SequencerInt)
+    w.masterCluster = snapshotRestored.MasterCluster
     return nil
 }
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
     /* TODO need to lock fsm? */
-    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerInt: int(w.sequencer)}
+    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerInt: int(w.sequencer), MasterCluster: w.masterCluster}
     return s, nil
 }
 
@@ -153,7 +157,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      return AcquireLockResponse{w.sequencer, ""}
 }
 
-func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockResponse {
+func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func()) {
     fmt.Println("WORKER: releasing lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held by this client, return error.
@@ -161,19 +165,24 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) ReleaseLockRe
        If recalcitrant, mark as disabled and release, notify master. */
     /* TODO: if recalcitrant, tell master and delete (rebalancing protocol). */
     if _, ok := w.lockStateMap[l]; !ok {
-        return ReleaseLockResponse{ErrLockDoesntExist}
+        return ReleaseLockResponse{ErrLockDoesntExist}, nil
     }
     state := w.lockStateMap[l]
     if !state.Held {
-        return ReleaseLockResponse{ErrLockNotHeld}
+        return ReleaseLockResponse{ErrLockNotHeld}, nil
     }
     if state.Client != client {
-        return ReleaseLockResponse{ErrBadClientRelease}
+        return ReleaseLockResponse{ErrBadClientRelease}, nil
     }
     state.Client = client
     state.Held = false
     w.lockStateMap[l] = state
-    return ReleaseLockResponse{""}
+
+    if state.Recalcitrant {
+        return ReleaseLockResponse{""}, w.releaseRecalcitrantLock(l)
+    }
+
+    return ReleaseLockResponse{""}, nil
 }
 
 func (w *WorkerFSM) addLock(l Lock) {
@@ -196,6 +205,24 @@ func (w *WorkerFSM) handleRebalanceRequest(locks_to_move []Lock) (RebalanceRespo
     return RebalanceResponse{recalcitrantLocks}
 }
 
-func (w *WorkerFSM) releaseRecalcitrantLock() {
-    //TODO
+func (w *WorkerFSM) releaseRecalcitrantLock(l Lock) func() {
+    /* Update map */
+    delete(w.lockStateMap, l) //TODO does this need to happen after we do something on the master? idk; maybe we wait for reply (in fsm) before we release and for now just mark it as held by nonexistant client (or use esomething else) 
+    /* Send message to master that was released */
+    args := make(map[string]string)
+    args[FunctionKey] = ReleasedRecalcitrantCommand
+    args[LockArgKey] = string(l)
+    command, json_err := json.Marshal(args)
+    if json_err != nil {
+        //TODO
+        fmt.Println("WORKER: JSON ERROR")
+    }
+    f := func() {
+        send_err := raft.SendSingletonRequestToCluster(w.masterCluster, command, &raft.ClientResponse{})
+        if send_err != nil {
+            fmt.Println("WORKER: error while sending recalcitrant release ")
+        }
+    }
+    /* I don't think it needs to block...*/
+    return f
 }
