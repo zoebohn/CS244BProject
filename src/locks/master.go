@@ -294,8 +294,18 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
+func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
+    workerAddrs := recruitAddrs[m.nextReplicaGroupId]
+    MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
+    id := m.nextReplicaGroupId //TODO race condition?
+    m.clusterMap[m.nextReplicaGroupId] = workerAddrs
+    m.numLocksHeld[m.nextReplicaGroupId] = 0
+    m.nextReplicaGroupId++
+    return id, nil
+}
+
 // @Emma why is this an array??
-func recruitCluster(masters []*MasterFSM) (ReplicaGroupId, error) {
+func recruitInitialCluster(masters []*MasterFSM) (error) {
     workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
     MakeCluster(numClusterServers, CreateWorker(len(workerAddrs)), workerAddrs)
     id := masters[0].nextReplicaGroupId //TODO race condition?
@@ -304,21 +314,16 @@ func recruitCluster(masters []*MasterFSM) (ReplicaGroupId, error) {
         masters[i].numLocksHeld[masters[i].nextReplicaGroupId] = 0
         masters[i].nextReplicaGroupId++
     }
-    return id, nil
-}
-
-func recruitInitialCluster(masters []*MasterFSM) error {
-    id, err := recruitCluster(masters)
     for i := range(masters) {
         masters[i].domainPlacementMap["/"] = []ReplicaGroupId{id}
     }
-    return err
+    return nil
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     /* Split managed locks into 2 - tell worker */
     locks_to_move := m.getLocksToRebalance(replicaGroup)
-    newReplicaGroup, err := recruitCluster(m) //TODO is this right? why array??
+    newReplicaGroup, err := m.recruitCluster() //TODO is this right? why array??
     if err != nil {
         //TODO
         fmt.Println("MASTER: error recruiting")
@@ -339,18 +344,21 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
         }
         rebalancing_resp := raft.ClientResponse{}
         send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &rebalancing_resp)
+        if send_err != nil {
+            fmt.Println("MASTER: send err")
+        }
         /* Get back recalcitrant locks */
         var response RebalanceResponse 
         unmarshal_err := json.Unmarshal(rebalancing_resp.ResponseData, &response)
         if unmarshal_err != nil {
             //TODO
-            fmt.Println("LOCK-CLIENT: error unmarshalling")
+            fmt.Println("MASTER: error unmarshalling")
         }
         num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
         m.numLocksHeld[replicaGroup] -= num_locks_moving_now 
         /* Update lock map for all but recalcitrant locks */
         for _, curr_lock := range locks_to_move {
-            if val, ok := response.RecalcitrantLocks[curr_lock]; !ok {
+            if _, ok := response.RecalcitrantLocks[curr_lock]; !ok {
                 state_to_update := m.lockMap[curr_lock]
                 state_to_update.ReplicaGroup = newReplicaGroup
                 m.lockMap[curr_lock] = state_to_update
