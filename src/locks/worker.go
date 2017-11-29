@@ -6,6 +6,7 @@ import(
     "io"
     "encoding/json"
     "bytes"
+    "strings"
 )
 
 type WorkerFSM struct{
@@ -50,18 +51,29 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
         //TODO
     }
     function := args[FunctionKey]
-    l := Lock(args[LockArgKey])
-    clientAddr := raft.ServerAddress(args[ClientAddrKey])
     switch function {
         case AddLockCommand:
+            l := Lock(args[LockArgKey])
             w.addLock(l)
             return nil, nil
         case AcquireLockCommand:
+            l := Lock(args[LockArgKey])
+            clientAddr := raft.ServerAddress(args[ClientAddrKey])
             response := w.tryAcquireLock(l, clientAddr)
             return response, nil
         case ReleaseLockCommand:
+            l := Lock(args[LockArgKey])
+            clientAddr := raft.ServerAddress(args[ClientAddrKey])
             response := w.releaseLock(l, clientAddr)
             return response, nil
+        case RebalanceCommand:
+            locks_to_move_string := strings.Split(args[LocksToMoveKey], ";")
+            var locks_to_move []Lock
+            for _, l := range locks_to_move_string {
+                locks_to_move = append(locks_to_move, Lock(l))
+            }
+            response := w.handleRebalanceRequest(locks_to_move)
+            return response, nil //TODO: idk about this
      }
 
     return nil, nil
@@ -169,8 +181,19 @@ func (w *WorkerFSM) addLock(l Lock) {
     w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
 }
 
-func (w *WorkerFSM) handleRebalanceRequest() {
-    //TODO
+func (w *WorkerFSM) handleRebalanceRequest(locks_to_move []Lock) (RebalanceResponse) {
+    recalcitrantLocks := make(map[Lock]int)
+    for _, l := range locks_to_move {
+        state := w.lockStateMap[l]
+        if state.Held {
+            state.Recalcitrant = true
+            w.lockStateMap[l] = state
+            recalcitrantLocks[l] = 1
+        } else {
+            delete(w.lockStateMap, l)
+        }
+    }
+    return RebalanceResponse{recalcitrantLocks}
 }
 
 func (w *WorkerFSM) releaseRecalcitrantLock() {

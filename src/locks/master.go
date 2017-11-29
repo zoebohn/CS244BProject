@@ -216,7 +216,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
 
        //TODO do this earlier in method?
     if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
-        m.rebalance()
+        m.rebalance(replicaGroup)
     }
 
     return f, CreateLockResponse{""}
@@ -317,8 +317,8 @@ func recruitInitialCluster(masters []*MasterFSM) error {
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     /* Split managed locks into 2 - tell worker */
-    locks_to_move = m.getLocksToRebalance(replicaGroup)
-    newReplicaGroup, err := recruitCluster([m]) //TODO is this right? why array??
+    locks_to_move := m.getLocksToRebalance(replicaGroup)
+    newReplicaGroup, err := recruitCluster(m) //TODO is this right? why array??
     if err != nil {
         //TODO
         fmt.Println("MASTER: error recruiting")
@@ -326,35 +326,47 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     rebalancing_func := func() {
         /* Send RPC to worker with locks_to_move */
         args := make(map[string]string)
-        args[LocksToMoveKey] = locks_to_move
+        args[FunctionKey] = RebalanceCommand
+        var string_form []string
+        for _, l := range locks_to_move {
+            string_form = append(string_form, string(l))
+        }
+        args[LocksToMoveKey] = strings.Join(string_form, ";")
         command, json_err := json.Marshal(args)
         if json_err != nil {
             //TODO
             fmt.Println("MASTER: JSON ERROR")
         }
-        rebalancing_resp := raft.RebalancingResponse{}
+        rebalancing_resp := raft.ClientResponse{}
         send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &rebalancing_resp)
         /* Get back recalcitrant locks */
-        var recalcitrant_locks map[string][int]
-        unmarshal_err := json.Unmarshal(rebalancing_resp.Recalcitrants, &recalcitrant_locks)
+        var response RebalanceResponse 
+        unmarshal_err := json.Unmarshal(rebalancing_resp.ResponseData, &response)
         if unmarshal_err != nil {
             //TODO
             fmt.Println("LOCK-CLIENT: error unmarshalling")
         }
-        num_locks_moving_now := (len(lock_to_move) - len(recalcitrant_locks))
-        numLocksHeld[replicaGroup] -= num_locks_moving_now 
+        num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
+        m.numLocksHeld[replicaGroup] -= num_locks_moving_now 
         /* Update lock map for all but recalcitrant locks */
-        for curr_lock, i := range locks_to_move {
-            if val, ok := recalcitrant_locks[curr_lock]; !ok {
-                state_to_update := lockMap[curr_lock]
+        for _, curr_lock := range locks_to_move {
+            if val, ok := response.RecalcitrantLocks[curr_lock]; !ok {
+                state_to_update := m.lockMap[curr_lock]
                 state_to_update.ReplicaGroup = newReplicaGroup
-                lockMap[curr_lock] = state_to_update
+                m.lockMap[curr_lock] = state_to_update
             }
         }
         /* //TODO Update domain placement map */
-            numLocksHeld[newReplicaGroup] += num_locks_moving_now
+            m.numLocksHeld[newReplicaGroup] += num_locks_moving_now
         }
-    }
 
     return rebalancing_func
+}
+
+func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) []Lock {
+    return nil //TODO
+}
+
+func (m *MasterFSM) handleRecalcitrantLock(l Lock) {
+    // TODO
 }
