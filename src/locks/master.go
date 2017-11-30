@@ -355,20 +355,21 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     m.rebalancingInProgress[replicaGroup] = true
 
     rebalancing_func := func() []byte {
-
+        fmt.Println("calling rebalancing callback...")
         /* Initiate rebalancing and find recalcitrant locks. */
         recalcitrantLocks := m.initiateRebalance(replicaGroup, locksToMove)
 
-        recalcitrantLocksList := make([]Lock, len(recalcitrantLocks))
+        recalcitrantLocksList := make([]Lock, 0)
         for l := range(recalcitrantLocks) {
             recalcitrantLocksList = append(recalcitrantLocksList, l)
         }
+        fmt.Println("**recalcitrantLocksList: ", recalcitrantLocksList)
 
         /* Recruit new replica group to store rebalanced locks. */
         MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
 
         /* Using set of recalcitrant locks, determine locks that can be moved. */
-        locksCanMove := make([]Lock, len(locksToMove) - len(recalcitrantLocks))
+        locksCanMove := make([]Lock, 0)
         for _, currLock := range(locksToMove) {
             if _, ok := recalcitrantLocks[currLock]; !ok {
                 locksCanMove = append(locksCanMove, currLock)
@@ -440,7 +441,7 @@ func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLo
 }
 
 /* Transfer ownership of locks in master and tell old replica group to disown locks. Should only be called after new replica group owns locks. */
-func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock, recalcitrantLocks[]Lock) func() []byte {
+func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock, recalcitrantLocks []Lock) func() []byte {
     /* Update master state to show that locks have moved. */
     m.numLocksHeld[oldGroupId] -= len(movingLocks)
     for _, l := range(movingLocks) {
@@ -457,9 +458,12 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     /* Use moving locks and recalcitrant locks to find all locks that should eventually move. */
     locksShouldMove := make(map[Lock]int)
     for _, l := range(movingLocks) {
+        fmt.Println("moving lock: ", l)
         locksShouldMove[l] = 1
     }
+    fmt.Println("recalcitrant locks in initialLockGroupTransfer: ", recalcitrantLocks)
     for _, l := range(recalcitrantLocks) {
+        fmt.Println("recalcitrant lock: ", l, recalcitrantLocks)
         locksShouldMove[l] = 1
     }
 
@@ -475,6 +479,7 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     /* Find moving domains where we should now place at newGroupId. */
     movingDomains := make(map[Domain]int)
     for l := range(locksShouldMove) {
+        fmt.Println("should move: ", l)
         movingDomains[getParentDomain(string(l))] = 1
     }
     /* For moving domains, add newGroupId to domainPlacementMap. If an old group no longer holds a domain, remove it from that entry in the domainPlacementMap. */
@@ -520,7 +525,7 @@ func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, ne
 
 func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
     /* Find all domains for locks in replica group. */
-    locks := make([]string, m.numLocksHeld[replicaGroup])
+    locks := make([]string, 0)
     for l := range(m.lockMap) {
         if m.lockMap[l] == replicaGroup {
             locks = append(locks, string(l))
@@ -528,7 +533,7 @@ func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
     }
     sort.Strings(locks)
 
-    splitLocks := make([]Lock, REBALANCE_THRESHOLD / 2)
+    splitLocks := make([]Lock, 0)
     for i := range(locks) {
         if i >= REBALANCE_THRESHOLD / 2 {
             return splitLocks
