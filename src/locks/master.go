@@ -424,7 +424,31 @@ func (m *MasterFSM) transferLocksInMaster(oldGroupId ReplicaGroupId, newGroupId 
         m.lockMap[l] = newGroupId
     }
     m.numLocksHeld[newGroupId] += len(movingLocks)
-    // TODO: Update domain placement map
+
+    /* Update domain placement map. */
+    /* Find domains where we should continue to place at oldGroupId. */
+    remainingDomains := make(map[Domain]int)
+    for l := range(m.lockMap) {
+        if m.lockMap[l] == oldGroupId {
+            remainingDomains[getParentDomain(string(l))] = 1
+        }
+    }
+    /* Find moving domains where we should now place at newGroupId. */
+    movingDomains := make(map[Domain]int)
+    for l := range(movingLocks) {
+        movingDomains[getParentDomain(string(l))] = 1
+    }
+    /* For moving domains, add newGroupId to domainPlacementMap. If an old group no longer holds a domain, remove it from that entry in the domainPlacementMap. */
+    for d := range(movingDomains) {
+        m.domainPlacementMap[d] = append(m.domainPlacementMap[d], newGroupId)
+        if _, ok := remainingDomains[d]; !ok {
+            for i := range(m.domainPlacementMap[d]) {
+                if m.domainPlacementMap[d][i] == oldGroupId {
+                    m.domainPlacementMap[d] = append(m.domainPlacementMap[d][:i], m.domainPlacementMap[d][i+1:]...)
+                }
+            }
+        }
+    }
 
     /* Ask old replica group to disown locks being moved. */
     f := func() []byte {
