@@ -29,6 +29,8 @@ type lockState struct{
     Client          raft.ServerAddress
     /* True if lock should be moved after released. */
     Recalcitrant    bool
+    /* Behaves as though Held by nonexistant client; used for rebalancing */
+    Disabled		bool
 }
 
 func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
@@ -55,9 +57,13 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
     }
     function := args[FunctionKey]
     switch function {
-        case AddLockCommand:
-            l := Lock(args[LockArgKey])
-            w.addLock(l)
+        case ClaimLocksCommand:
+            lock_arr := string_to_lock_array(args[LockArrayKey])
+            response := w.claimLocks(lock_arr)
+            return response, nil /* TODO send back response */
+        case DisownLocksCommand:
+            lock_arr := string_to_lock_array(args[LockArrayKey])
+            w.disownLocks(lock_arr)
             return nil, nil
         case AcquireLockCommand:
             l := Lock(args[LockArgKey])
@@ -70,12 +76,8 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) {
             response, callback := w.releaseLock(l, clientAddr)
             return response, callback
         case RebalanceCommand:
-            locks_to_move_string := strings.Split(args[LocksToMoveKey], ";")
-            var locks_to_move []Lock
-            for _, l := range locks_to_move_string {
-                locks_to_move = append(locks_to_move, Lock(l))
-            }
-            response := w.handleRebalanceRequest(locks_to_move)
+            lock_arr := string_to_lock_array(args[LockArrayKey])
+            response := w.handleRebalanceRequest(lock_arr)
             return response, nil //TODO: idk about this
      }
 
@@ -147,7 +149,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
-     if state.Held {
+     if state.Held || state.Disabled {
          return AcquireLockResponse{-1, ErrLockHeld}
      }
      state.Held = true
@@ -179,45 +181,57 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     w.lockStateMap[l] = state
 
     if state.Recalcitrant {
-        return ReleaseLockResponse{""}, w.releaseRecalcitrantLock(l)
+        state.Disabled = true
+        w.lockStateMap[l] = state
+        return ReleaseLockResponse{""}, w.generateRecalcitrantReleaseAlert(l)
     }
 
     return ReleaseLockResponse{""}, nil
 }
 
-func (w *WorkerFSM) addLock(l Lock) {
-    fmt.Println("WORKER: adding lock ", string(l))
-    w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
+func (w *WorkerFSM) claimLocks(lock_arr []Lock) ClaimLocksResponse {
+    for _, l := range lock_arr {
+        fmt.Println("WORKER: claiming lock ", string(l))
+        w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
+    }
+	return ClaimLocksResponse{LocksAdded: lock_array_to_string(lock_arr)}
 }
 
-func (w *WorkerFSM) handleRebalanceRequest(locks_to_move []Lock) (RebalanceResponse) {
+func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
+    for _, l := range lock_arr {
+        fmt.Println("WORKER: disowning lock ", string(l))
+        delete(w.lockStateMap, l)
+    }
+}
+
+
+func (w *WorkerFSM) handleRebalanceRequest(lock_arr []Lock) (RebalanceResponse) {
     recalcitrantLocks := make(map[Lock]int)
-    for _, l := range locks_to_move {
+    for _, l := range lock_arr {
         state := w.lockStateMap[l]
         if state.Held {
             state.Recalcitrant = true
-            w.lockStateMap[l] = state
             recalcitrantLocks[l] = 1
         } else {
-            delete(w.lockStateMap, l)
+            state.Disabled = true 
         }
+        w.lockStateMap[l] = state
     }
     return RebalanceResponse{recalcitrantLocks}
 }
 
-func (w *WorkerFSM) releaseRecalcitrantLock(l Lock) func() {
+func (w *WorkerFSM) readyToDisownAlert(l Lock) func() {
     /* Update map */
-    delete(w.lockStateMap, l) //TODO does this need to happen after we do something on the master? idk; maybe we wait for reply (in fsm) before we release and for now just mark it as held by nonexistant client (or use esomething else) 
     /* Send message to master that was released */
-    args := make(map[string]string)
-    args[FunctionKey] = ReleasedRecalcitrantCommand
-    args[LockArgKey] = string(l)
-    command, json_err := json.Marshal(args)
-    if json_err != nil {
-        //TODO
-        fmt.Println("WORKER: JSON ERROR")
-    }
     f := func() {
+        args := make(map[string]string)
+        args[FunctionKey] = ReleasedRecalcitrantCommand
+        args[LockArgKey] = string(l)
+        command, json_err := json.Marshal(args)
+        if json_err != nil {
+            //TODO
+            fmt.Println("WORKER: JSON ERROR")
+        }
         send_err := raft.SendSingletonRequestToCluster(w.masterCluster, command, &raft.ClientResponse{})
         if send_err != nil {
             fmt.Println("WORKER: error while sending recalcitrant release ")

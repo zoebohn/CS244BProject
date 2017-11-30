@@ -328,7 +328,6 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     /* Split managed locks into 2 - tell worker */
     locks_to_move := m.getLocksToRebalance(replicaGroup)
-    newReplicaGroup, err := m.recruitCluster() //TODO is this right? why array??
     if err != nil {
         //TODO
         fmt.Println("MASTER: error recruiting")
@@ -359,6 +358,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
             //TODO
             fmt.Println("MASTER: error unmarshalling")
         }
+        //TODO need to somehow put this back in the fsm channel
         num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
         m.numLocksHeld[replicaGroup] -= num_locks_moving_now 
         /* Update lock map for all but recalcitrant locks */

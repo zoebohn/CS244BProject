@@ -20,7 +20,7 @@ const TransactionIDKey string = "trans"
 /* Master -> Worker RPCs */
 const ClaimLocksCommand string = "add-lock"
 const RebalanceCommand string = "rebalance"
-const ReleasedRecalcitrantCommand string = "rel-recal"
+const ReadyToDisownCommand string = "rel-recal"
 const DisownLocksCommand string = "disown"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
@@ -65,7 +65,6 @@ type RebalanceResponse struct {
 
 type ClaimLocksResponse struct {
     LocksAdded string
-    ReplicaID ReplicaGroupId
 }
 
 /* TODO: define errors. */
