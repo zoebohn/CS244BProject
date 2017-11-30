@@ -22,7 +22,10 @@ type MasterFSM struct {
     numLocksHeld        map[ReplicaGroupId]int
     /* Next replica group ID. */
     nextReplicaGroupId  ReplicaGroupId
+    /* Location of servers in master cluster. */
     masterCluster       []raft.ServerAddress
+    /* Eventual destinations of recalcitrant locks. */
+    recalcitrantDestMap map[Lock]ReplicaGroupId
 }
 
 
@@ -41,6 +44,7 @@ type MasterSnapshot struct{
     NumLocksHeld        map[ReplicaGroupId]int
     NextReplicaGroupId  ReplicaGroupId
     MasterCluster       []raft.ServerAddress
+    RecalcitrantDestMap map[Lock]ReplicaGroupId
 }
 
 func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
@@ -53,6 +57,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
             numLocksHeld:       make(map[ReplicaGroupId]int),
             nextReplicaGroupId: 0,
             masterCluster:      clusterAddrs,
+            recalcitrantDestMap:make(map[Lock]ReplicaGroupId),
         }
     }
     if n <= 0 {
@@ -98,9 +103,9 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             return response, nil
         case ReleasedRecalcitrantCommand:
             l := Lock(args[LockArgKey])
-            m.handleReleasedRecalcitrant(l)
-            return nil, nil
-        case TransferLocksCommand:
+            callback := m.handleReleasedRecalcitrant(l)
+            return nil, callback
+        case TransferLockGroupCommand:
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
             newGroup, err2 := strconv.Atoi(args[NewGroupKey])
             if err1 != nil || err2 != nil {
@@ -109,7 +114,17 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             }
             lockArr := string_to_lock_array(args[LockArrayKey])
             recalArr := string_to_lock_array(args[LockArray2Key])
-            callback := m.transferLocksInMaster(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), lockArr, recalArr)
+            callback := m.initialLockGroupTransfer(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), lockArr, recalArr)
+            return nil, callback
+        case TransferRecalCommand:
+            oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
+            newGroup, err2 := strconv.Atoi(args[NewGroupKey])
+            if err1 != nil || err2 != nil {
+                fmt.Println("MASTER: group IDs can't be converted to ints")
+                return nil, nil
+            }
+            l := Lock(args[LockArgKey])
+            callback := m.singleRecalcitrantLockTransfer(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), l)
             return nil, callback
         }
 
@@ -121,7 +136,7 @@ func (m *MasterFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* TODO need to lock fsm? */
     s := MasterSnapshot{LockMap: m.lockMap, ClusterMap: m.clusterMap,
          DomainPlacementMap: m.domainPlacementMap, NumLocksHeld: m.numLocksHeld,
-         NextReplicaGroupId: m.nextReplicaGroupId}
+         NextReplicaGroupId: m.nextReplicaGroupId, RecalcitrantDestMap: m.recalcitrantDestMap}
     return s, nil
 }
 
@@ -140,6 +155,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.domainPlacementMap = snapshotRestored.DomainPlacementMap
     m.numLocksHeld = snapshotRestored.NumLocksHeld
     m.nextReplicaGroupId = snapshotRestored.NextReplicaGroupId
+    m.recalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
 
     return nil
 }
@@ -208,18 +224,7 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     m.lockMap[l] = replicaGroup
     // TODO: should this get a response?
     f := func() []byte {
-            args := make(map[string]string)
-            args[FunctionKey] = ClaimLocksCommand
-            args[LockArrayKey] = lock_array_to_string([]Lock{l})
-            command, json_err := json.Marshal(args)
-            if json_err != nil {
-                //TODO
-                fmt.Println("MASTER: JSON ERROR")
-            }
-            send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &raft.ClientResponse{}) //TODO should this really be a client response??
-            if send_err != nil {
-                fmt.Println("MASTER: error while sending")
-            }
+            m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
             return nil
         }
 
@@ -364,7 +369,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
 
         /* Tell master to transfer ownership of locks from old group to new group. */
         args := make(map[string]string)
-        args[FunctionKey] = TransferLocksCommand
+        args[FunctionKey] = TransferLockGroupCommand
         args[LockArrayKey] = lock_array_to_string(locksCanMove)
         args[LockArray2Key] = lock_array_to_string(recalcitrantLocksList)
         args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
@@ -424,13 +429,18 @@ func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLo
 }
 
 /* Transfer ownership of locks in master and tell old replica group to disown locks. Should only be called after new replica group owns locks. */
-func (m *MasterFSM) transferLocksInMaster(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock, recalcitrantLocks[]Lock) func() []byte {
+func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock, recalcitrantLocks[]Lock) func() []byte {
     /* Update master state to show that locks have moved. */
     m.numLocksHeld[oldGroupId] -= len(movingLocks)
     for _, l := range(movingLocks) {
         m.lockMap[l] = newGroupId
     }
     m.numLocksHeld[newGroupId] += len(movingLocks)
+
+    /* Mark eventual destination of recalcitrant locks. */
+    for _, l := range(recalcitrantLocks) {
+        m.recalcitrantDestMap[l] = newGroupId
+    }
 
     /* Update domain placement map. */
     /* Use moving locks and recalcitrant locks to find all locks that should eventually move. */
@@ -477,6 +487,21 @@ func (m *MasterFSM) transferLocksInMaster(oldGroupId ReplicaGroupId, newGroupId 
     return f
 }
 
+func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, l Lock) func() []byte {
+    /* Update state for transferring recalcitrant lock. */
+    m.lockMap[l] = newGroupId
+    m.numLocksHeld[newGroupId]++
+    m.numLocksHeld[oldGroupId]--
+
+    /* Ask worker to disown lock now that transferred. */
+    f := func() []byte {
+        m.askWorkerToDisownLocks(oldGroupId, []Lock{l})
+        return nil
+    }
+
+    return f
+}
+
 func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
     /* Find all domains for locks in replica group. */
     locks := make([]string, m.numLocksHeld[replicaGroup])
@@ -498,6 +523,26 @@ func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
     return splitLocks
 }
 
-func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) {
-    // TODO
+func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
+   /* Find replica group to place lock into, remove recalcitrant lock entry in map. */
+   newReplicaGroup := m.recalcitrantDestMap[l]
+   delete(m.recalcitrantDestMap, l)
+
+   sendLockFunc := func() []byte {
+       m.askWorkerToClaimLocks(newReplicaGroup, []Lock{l})
+
+       /* Tell master to transfer ownership of locks. */
+       args := make(map[string]string)
+       args[FunctionKey] = TransferRecalCommand
+       args[LockArgKey] = string(l)
+       args[OldGroupKey] = strconv.Itoa(int(m.lockMap[l]))
+       args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
+       command, json_err := json.Marshal(args)
+       if json_err != nil {
+           fmt.Println("MASTER: json error")
+       }
+       return command
+   }
+
+   return sendLockFunc
 }

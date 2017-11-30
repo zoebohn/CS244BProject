@@ -29,7 +29,9 @@ const DisownLocksCommand string = "disown"
 const ReleasedRecalcitrantCommand string = "rel-recal"
 
 /* Master responses to RPCs */
-const TransferLocksCommand string = "transfer"
+const TransferLockGroupCommand string = "transfer-group"
+const TransferRecalCommand string = "transfer-recal"
+
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
