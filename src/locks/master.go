@@ -26,6 +26,8 @@ type MasterFSM struct {
     masterCluster       []raft.ServerAddress
     /* Eventual destinations of recalcitrant locks. */
     recalcitrantDestMap map[Lock]ReplicaGroupId
+    /* Rebalances in progress */
+    rebalancingInProgress map[ReplicaGroupId]bool
 }
 
 
@@ -45,6 +47,7 @@ type MasterSnapshot struct{
     NextReplicaGroupId  ReplicaGroupId
     MasterCluster       []raft.ServerAddress
     RecalcitrantDestMap map[Lock]ReplicaGroupId
+    RebalancingInProgress map[ReplicaGroupId]bool
 }
 
 func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
@@ -57,7 +60,8 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
             numLocksHeld:       make(map[ReplicaGroupId]int),
             nextReplicaGroupId: 0,
             masterCluster:      clusterAddrs,
-            recalcitrantDestMap:make(map[Lock]ReplicaGroupId),
+            recalcitrantDestMap: make(map[Lock]ReplicaGroupId),
+            rebalancingInProgress: make(map[ReplicaGroupId]bool),
         }
     }
     if n <= 0 {
@@ -226,11 +230,12 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     f := func() []byte {
             m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
             return nil
-        }
+    }
 
-       //TODO do this earlier in method?
     if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
-        m.rebalance(replicaGroup)
+        if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
+            m.rebalance(replicaGroup)
+        }
     }
 
     return f, CreateLockResponse{""}
@@ -334,6 +339,9 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
+    fmt.Println("MASTER: REBALANCING")
+    fmt.Println("next id: " + strconv.Itoa(int(m.nextReplicaGroupId)))
+    
     /* Split managed locks into 2 - tell worker */
     locksToMove := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
@@ -342,6 +350,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId] 
     m.numLocksHeld[m.nextReplicaGroupId] = 0
     m.nextReplicaGroupId++
+    m.rebalancingInProgress[replicaGroup] = true
 
     rebalancing_func := func() []byte {
 
@@ -476,6 +485,11 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
                 }
             }
         }
+    }
+
+    /* No longer rebalancing */
+    if _, ok := m.rebalancingInProgress[oldGroupId]; ok {
+        delete(m.rebalancingInProgress, oldGroupId)
     }
 
     /* Ask old replica group to disown locks being moved. */
