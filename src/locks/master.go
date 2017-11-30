@@ -30,11 +30,11 @@ type MasterFSM struct {
 
 
 /* Constants for recruiting new clusters. */
-var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}}
+var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}}
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const REBALANCE_THRESHOLD = 20
+const REBALANCE_THRESHOLD = 4
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{

@@ -5,6 +5,7 @@ import (
     "raft"
     "time"
     "locks"
+    "strconv"
 )
 
 var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
@@ -24,7 +25,9 @@ func main() {
     }
     fmt.Println("")
     fmt.Println("")
-    test_simple(lc)
+    //test rebalancing
+    test_rebalancing(lc)
+    /*    test_simple(lc)
     fmt.Println("")
     fmt.Println("")
     test_double_acquire(lc)
@@ -43,7 +46,7 @@ func main() {
     fmt.Println("")
     fmt.Println("")
     /* Second client */
-    trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+  /*  trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
         fmt.Println("err: ", err)
         return
@@ -66,6 +69,22 @@ func main() {
     test_release_unacquired_2(lc, lc2)
     fmt.Println("")
     fmt.Println("")
+*/}
+
+func test_rebalancing(lc *locks.LockClient) {
+    counter := 0
+    for counter < 5 {
+        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        fmt.Println("create lock")
+        create_err := lc.CreateLock(lock)
+        if create_err != nil {
+            fmt.Println("error with creating " + string(lock))
+            fmt.Println(create_err)
+        } else {
+            fmt.Println("successfully created lock " + string(lock))
+        }
+        counter += 1
+    }
 }
 
 /* Create, acquire, and release lock; one client */

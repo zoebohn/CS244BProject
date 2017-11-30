@@ -73,10 +73,6 @@ type RebalanceResponse struct {
     RecalcitrantLocks map[Lock]int
 }
 
-type ClaimLocksResponse struct {
-    LocksAdded string
-}
-
 /* TODO: define errors. */
 var(
     ErrLockExists = "lock already exists"

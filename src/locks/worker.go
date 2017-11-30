@@ -58,8 +58,8 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
     switch function {
         case ClaimLocksCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
-            response := w.claimLocks(lock_arr)
-            return response, nil /* TODO send back response */
+            w.claimLocks(lock_arr)
+            return nil, nil 
         case DisownLocksCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             w.disownLocks(lock_arr)
@@ -188,13 +188,11 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     return ReleaseLockResponse{""}, nil
 }
 
-func (w *WorkerFSM) claimLocks(lock_arr []Lock) ClaimLocksResponse {
+func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
     for _, l := range lock_arr {
         fmt.Println("WORKER: claiming lock ", string(l))
         w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
     }
-    // TODO: do we actually need this?
-    return ClaimLocksResponse{LocksAdded: lock_array_to_string(lock_arr)}
 }
 
 func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
