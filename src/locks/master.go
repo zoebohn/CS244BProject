@@ -198,9 +198,6 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     fmt.Println("MASTER: master creating lock with name ", string(l))
     fmt.Println("MASTER: Lock map ", m.lockMap)
-    
-    
-    
     /* Check if already eddxists (return false).
       Check that intermediate domains exist. 
       Get replica group ID where should be put.
@@ -226,17 +223,22 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     }
     m.numLocksHeld[replicaGroup]++
     m.lockMap[l] = replicaGroup
-    // TODO: should this get a response?
+    
+    var rebalanceCallback func() []byte
+    if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
+        if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
+            rebalanceCallback = m.rebalance(replicaGroup)
+        }
+    }
+    
     f := func() []byte {
             m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
+            if rebalanceCallback != nil {
+                return rebalanceCallback()
+            }
             return nil
     }
 
-    if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
-        if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
-            m.rebalance(replicaGroup)
-        }
-    }
 
     return f, CreateLockResponse{""}
 }
