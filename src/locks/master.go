@@ -11,7 +11,7 @@ import(
 
 type MasterFSM struct {
     /* Map of locks to replica group where stored. */
-    lockMap             map[Lock]*masterLockState
+    lockMap             map[Lock]ReplicaGroupId
     /* Map of replica group IDs to server addresses of the servers in that replica group. */
     clusterMap          map[ReplicaGroupId][]raft.ServerAddress
     /* Map of lock domains to replica group where should be stored. */
@@ -23,12 +23,6 @@ type MasterFSM struct {
     masterCluster       []raft.ServerAddress
 }
 
-type masterLockState struct {
-    /* Replica group where lock is stored. */
-    ReplicaGroup        ReplicaGroupId
-    /* True if lock is in transit, false otherwise. */
-    InTransit           bool
-}
 
 /* Constants for recruiting new clusters. */
 var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}}
@@ -39,7 +33,7 @@ const REBALANCE_THRESHOLD = 20
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
-    LockMap             map[Lock]*masterLockState
+    LockMap             map[Lock]ReplicaGroupId
     ClusterMap          map[ReplicaGroupId][]raft.ServerAddress
     DomainPlacementMap  map[Domain][]ReplicaGroupId
     NumLocksHeld        map[ReplicaGroupId]int
@@ -51,7 +45,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
-            lockMap:            make(map[Lock]*masterLockState),
+            lockMap:            make(map[Lock]ReplicaGroupId),
             clusterMap:         make(map[ReplicaGroupId][]raft.ServerAddress),
             domainPlacementMap: make(map[Domain][]ReplicaGroupId),
             numLocksHeld:       make(map[ReplicaGroupId]int),
@@ -198,7 +192,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
         return nil, CreateLockResponse{err}
     }
     m.numLocksHeld[replicaGroup]++
-    m.lockMap[l] = &masterLockState{ReplicaGroup: replicaGroup, InTransit: true}
+    m.lockMap[l] = replicaGroup
     /* Only do this if r not nil and is leader */
     /* Is there a leader lock I need to acquire around this? make sure don't lose leader mandate? */
     /* Need to make sure replica group has made lock before replying to client. */
@@ -258,11 +252,10 @@ func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
     /* Check that lock exists.
        Check lockMap to find replica group ID. 
        Return replica groupID and servers using clusterMap. */
-    lockState, ok := m.lockMap[l]
+    replicaGroup, ok := m.lockMap[l]
     if !ok {
         return LocateLockResponse{-1, nil, ErrLockDoesntExist}
     }
-    replicaGroup := lockState.ReplicaGroup
     return LocateLockResponse{replicaGroup, m.clusterMap[replicaGroup], ""}
 }
 
@@ -369,9 +362,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
         /* Update lock map for all but recalcitrant locks */
         for _, curr_lock := range locks_to_move {
             if _, ok := response.RecalcitrantLocks[curr_lock]; !ok {
-                state_to_update := m.lockMap[curr_lock]
-                state_to_update.ReplicaGroup = newReplicaGroup
-                m.lockMap[curr_lock] = state_to_update
+                m.lockMap[curr_lock] = newReplicaGroup
             }
         }
         /* //TODO Update domain placement map */
