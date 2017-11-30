@@ -8,6 +8,7 @@ import(
     "encoding/json"
     "bytes"
     "strconv"
+    "sort"
 )
 
 type MasterFSM struct {
@@ -328,11 +329,7 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     /* Split managed locks into 2 - tell worker */
-    locks_to_move, err := m.getLocksToRebalance(replicaGroup)
-    if err != nil {
-        //TODO
-        fmt.Println("MASTER: error recruiting")
-    }
+    locks_to_move := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
     workerAddrs := recruitAddrs[m.nextReplicaGroupId]
     newReplicaGroup := m.nextReplicaGroupId + 1
@@ -438,8 +435,25 @@ func (m *MasterFSM) transferLocksInMaster(oldGroupId ReplicaGroupId, newGroupId 
     return f
 }
 
-func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) ([]Lock, error) {
-    return nil, nil //TODO
+func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
+    /* Find all domains for locks in replica group. */
+    locks := make([]string, m.numLocksHeld[replicaGroup])
+    for l := range(m.lockMap) {
+        if m.lockMap[l] == replicaGroup {
+            locks = append(locks, string(l))
+        }
+    }
+    sort.Strings(locks)
+
+    splitLocks := make([]Lock, REBALANCE_THRESHOLD / 2)
+    for i := range(locks) {
+        if i >= REBALANCE_THRESHOLD / 2 {
+            return splitLocks
+        }
+        splitLocks = append(splitLocks, Lock(locks[i]))
+    }
+    fmt.Println("MASTER: error in splitting locks")
+    return splitLocks
 }
 
 func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) {
