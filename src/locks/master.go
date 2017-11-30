@@ -206,8 +206,8 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
     f := func(){
             args := make(map[string]string)
-            args[FunctionKey] = AddLockCommand
-            args[LockArgKey] = string(l)
+            args[FunctionKey] = ClaimLocksCommand
+            args[LockArrayKey] = lock_array_to_string(make([]Locks{l})
             command, json_err := json.Marshal(args)
             if json_err != nil {
                 //TODO
@@ -336,11 +336,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
         /* Send RPC to worker with locks_to_move */
         args := make(map[string]string)
         args[FunctionKey] = RebalanceCommand
-        var string_form []string
-        for _, l := range locks_to_move {
-            string_form = append(string_form, string(l))
-        }
-        args[LocksToMoveKey] = strings.Join(string_form, ";")
+        args[LocksToMoveKey] = lock_array_to_string(locks_to_move) 
         command, json_err := json.Marshal(args)
         if json_err != nil {
             //TODO
@@ -358,7 +354,9 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
             //TODO
             fmt.Println("MASTER: error unmarshalling")
         }
-        //TODO need to somehow put this back in the fsm channel
+        
+        //TODO put this back in fsm channel and have it trigger telling a new cluster to claim the locks -> idk what these updates down there are doing but I think they have to happen after the new cluster affirms that it has claimed the locks
+        
         num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
         m.numLocksHeld[replicaGroup] -= num_locks_moving_now 
         /* Update lock map for all but recalcitrant locks */
