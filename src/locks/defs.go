@@ -14,12 +14,14 @@ const FunctionKey string = "function"
 const LockArgKey string = "lock"
 const DomainArgKey string = "domain"
 const ClientAddrKey string = "client-addr"
-const LocksToMoveKey string = "locks-to-move"
+const LockArrayKey string = "lock-arr"
+const TransactionIDKey string = "trans"
 
 /* Master -> Worker RPCs */
-const AddLockCommand string = "add-lock"
+const ClaimLocksCommand string = "add-lock"
 const RebalanceCommand string = "rebalance"
 const ReleasedRecalcitrantCommand string = "rel-recal"
+const DisownLocksCommand string = "disown"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
@@ -59,6 +61,11 @@ type ReleaseLockResponse struct {
 
 type RebalanceResponse struct {
     RecalcitrantLocks map[Lock]int
+}
+
+type ClaimLocksResponse struct {
+    LocksAdded string
+    ReplicaID ReplicaGroupId
 }
 
 /* TODO: define errors. */
