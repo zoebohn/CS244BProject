@@ -207,7 +207,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     f := func(){
             args := make(map[string]string)
             args[FunctionKey] = ClaimLocksCommand
-            args[LockArrayKey] = lock_array_to_string(make([]Locks{l})
+            args[LockArrayKey] = lock_array_to_string([]Lock{l})
             command, json_err := json.Marshal(args)
             if json_err != nil {
                 //TODO
@@ -327,7 +327,7 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     /* Split managed locks into 2 - tell worker */
-    locks_to_move := m.getLocksToRebalance(replicaGroup)
+    locks_to_move, err := m.getLocksToRebalance(replicaGroup)
     if err != nil {
         //TODO
         fmt.Println("MASTER: error recruiting")
@@ -336,13 +336,14 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
         /* Send RPC to worker with locks_to_move */
         args := make(map[string]string)
         args[FunctionKey] = RebalanceCommand
-        args[LocksToMoveKey] = lock_array_to_string(locks_to_move) 
+        args[LockArgKey] = lock_array_to_string(locks_to_move) 
         command, json_err := json.Marshal(args)
         if json_err != nil {
             //TODO
             fmt.Println("MASTER: JSON ERROR")
         }
         rebalancing_resp := raft.ClientResponse{}
+        /* Tell worker to disown locks that need to be moved. */
         send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &rebalancing_resp)
         if send_err != nil {
             fmt.Println("MASTER: send err")
@@ -354,7 +355,13 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
             //TODO
             fmt.Println("MASTER: error unmarshalling")
         }
-        
+       
+        /* Recruit new replica group to store rebalanced locks. */
+        newReplicaGroup, err := m.recruitCluster()
+        if err != nil {
+            fmt.Println("MASTER: error recruiting new cluster in rebalancing, ", err)
+        }
+
         //TODO put this back in fsm channel and have it trigger telling a new cluster to claim the locks -> idk what these updates down there are doing but I think they have to happen after the new cluster affirms that it has claimed the locks
         
         num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
@@ -374,8 +381,8 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
     return rebalancing_func
 }
 
-func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) []Lock {
-    return nil //TODO
+func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) ([]Lock, error) {
+    return nil, nil //TODO
 }
 
 func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) {

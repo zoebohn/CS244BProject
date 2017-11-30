@@ -6,7 +6,6 @@ import(
     "io"
     "encoding/json"
     "bytes"
-    "strings"
 )
 
 type WorkerFSM struct{
@@ -220,7 +219,7 @@ func (w *WorkerFSM) handleRebalanceRequest(lock_arr []Lock) (RebalanceResponse) 
     return RebalanceResponse{recalcitrantLocks}
 }
 
-func (w *WorkerFSM) readyToDisownAlert(l Lock) func() {
+func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func() {
     /* Update map */
     /* Send message to master that was released */
     f := func() {

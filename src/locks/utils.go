@@ -1,5 +1,9 @@
  package locks
 
+import(
+    "strings"
+)
+
  func lock_array_to_string(lock_arr []Lock) string {
     var string_form []string
     for _, l := range lock_arr {
