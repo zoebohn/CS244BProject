@@ -9,10 +9,14 @@ import(
     for _, l := range lock_arr {
         string_form = append(string_form, string(l))
     }
-    return strings.Join(string_form, ";")
- }
+    str := strings.Join(string_form, ";")
+    return str
+}
 
  func string_to_lock_array(s string) []Lock {
+    if s == "" {
+        return []Lock{}
+    }
     string_arr := strings.Split(s, ";")
     var lock_arr []Lock
     for _, l := range string_arr {

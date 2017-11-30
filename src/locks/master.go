@@ -363,7 +363,6 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
         for l := range(recalcitrantLocks) {
             recalcitrantLocksList = append(recalcitrantLocksList, l)
         }
-        fmt.Println("**recalcitrantLocksList: ", recalcitrantLocksList)
 
         /* Recruit new replica group to store rebalanced locks. */
         MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
@@ -458,12 +457,9 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     /* Use moving locks and recalcitrant locks to find all locks that should eventually move. */
     locksShouldMove := make(map[Lock]int)
     for _, l := range(movingLocks) {
-        fmt.Println("moving lock: ", l)
         locksShouldMove[l] = 1
     }
-    fmt.Println("recalcitrant locks in initialLockGroupTransfer: ", recalcitrantLocks)
     for _, l := range(recalcitrantLocks) {
-        fmt.Println("recalcitrant lock: ", l, recalcitrantLocks)
         locksShouldMove[l] = 1
     }
 
@@ -479,7 +475,6 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     /* Find moving domains where we should now place at newGroupId. */
     movingDomains := make(map[Domain]int)
     for l := range(locksShouldMove) {
-        fmt.Println("should move: ", l)
         movingDomains[getParentDomain(string(l))] = 1
     }
     /* For moving domains, add newGroupId to domainPlacementMap. If an old group no longer holds a domain, remove it from that entry in the domainPlacementMap. */

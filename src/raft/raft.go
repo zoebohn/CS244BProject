@@ -1412,7 +1412,6 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
         nextCommand = f.Callback()()
     }
     data, json_err := json.Marshal(f.Response())
-    fmt.Println(f.Response())
     if json_err != nil {
         //TODO
     }
