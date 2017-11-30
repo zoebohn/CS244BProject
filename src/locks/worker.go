@@ -44,7 +44,7 @@ func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     return workers
 }
 
-func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func()) { 
+func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) { 
     /* Interpret log to find command. Call appropriate function. */
     // use Data and assume it was in json? check type for what
     // function to call? or maybe we add a log command that's a 
@@ -158,7 +158,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      return AcquireLockResponse{w.sequencer, ""}
 }
 
-func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func()) {
+func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
     fmt.Println("WORKER: releasing lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held by this client, return error.
@@ -219,10 +219,10 @@ func (w *WorkerFSM) handleRebalanceRequest(lock_arr []Lock) (RebalanceResponse) 
     return RebalanceResponse{recalcitrantLocks}
 }
 
-func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func() {
+func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
     /* Update map */
     /* Send message to master that was released */
-    f := func() {
+    f := func() []byte {
         args := make(map[string]string)
         args[FunctionKey] = ReleasedRecalcitrantCommand
         args[LockArgKey] = string(l)
@@ -235,6 +235,7 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func() {
         if send_err != nil {
             fmt.Println("WORKER: error while sending recalcitrant release ")
         }
+        return nil
     }
     /* I don't think it needs to block...*/
     return f

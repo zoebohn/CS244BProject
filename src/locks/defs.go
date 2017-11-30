@@ -16,6 +16,8 @@ const DomainArgKey string = "domain"
 const ClientAddrKey string = "client-addr"
 const LockArrayKey string = "lock-arr"
 const TransactionIDKey string = "trans"
+const OldGroupKey string = "old-group"
+const NewGroupKey string = "new-group"
 
 /* Master -> Worker RPCs */
 const ClaimLocksCommand string = "add-lock"
@@ -24,6 +26,9 @@ const DisownLocksCommand string = "disown"
 
 /* Worker -> Master RPCs */
 const ReleasedRecalcitrantCommand string = "rel-recal"
+
+/* Master responses to RPCs */
+const TransferLocksCommand string = "transfer"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int

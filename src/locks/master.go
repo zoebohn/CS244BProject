@@ -7,6 +7,7 @@ import(
     "io"
     "encoding/json"
     "bytes"
+    "strconv"
 )
 
 type MasterFSM struct {
@@ -70,7 +71,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
 }
 
 /* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
-func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
+func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
     /* Interpret log to find command. Call appropriate function. */
 
     args := make(map[string]string)
@@ -97,6 +98,16 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func()) {
         case ReleasedRecalcitrantCommand:
             l := Lock(args[LockArgKey])
             m.handleReleasedRecalcitrant(l)
+            return nil, nil
+        case TransferLocksCommand:
+            oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
+            newGroup, err2 := strconv.Atoi(args[NewGroupKey])
+            if err1 != nil || err2 != nil {
+                fmt.Println("MASTER: group IDs can't be converted to ints")
+                return nil, nil
+            }
+            lockArr := string_to_lock_array(args[LockArrayKey])
+            m.transferLocks(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), lockArr)
             return nil, nil
         }
 
@@ -162,7 +173,7 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
     return s, err
 }
 
-func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
+func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     fmt.Println("MASTER: master creating lock with name ", string(l))
     fmt.Println("MASTER: Lock map ", m.lockMap)
     
@@ -198,7 +209,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
     /* Need to make sure replica group has made lock before replying to client. */
     /* TODO: mark not as transit when receive response from worker cluster. */
     /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
-    f := func(){
+    f := func() []byte {
             args := make(map[string]string)
             args[FunctionKey] = ClaimLocksCommand
             args[LockArrayKey] = lock_array_to_string([]Lock{l})
@@ -211,6 +222,7 @@ func (m *MasterFSM) createLock(l Lock) (func(), CreateLockResponse) {
             if send_err != nil {
                 fmt.Println("MASTER: error while sending")
             }
+            return nil
         }
 
        //TODO do this earlier in method?
@@ -318,26 +330,29 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
     return nil
 }
 
-func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
+func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     /* Split managed locks into 2 - tell worker */
     locks_to_move, err := m.getLocksToRebalance(replicaGroup)
     if err != nil {
         //TODO
         fmt.Println("MASTER: error recruiting")
     }
-    rebalancing_func := func() {
+    workerAddrs := recruitAddrs[m.nextReplicaGroupId]
+    newReplicaGroup := m.nextReplicaGroupId + 1
+
+    rebalancing_func := func() []byte {
         /* Send RPC to worker with locks_to_move */
-        args := make(map[string]string)
-        args[FunctionKey] = RebalanceCommand
-        args[LockArgKey] = lock_array_to_string(locks_to_move) 
-        command, json_err := json.Marshal(args)
-        if json_err != nil {
+        rebalanceArgs := make(map[string]string)
+        rebalanceArgs[FunctionKey] = RebalanceCommand
+        rebalanceArgs[LockArgKey] = lock_array_to_string(locks_to_move) 
+        rebalanceCommand, json_err1 := json.Marshal(rebalanceArgs)
+        if json_err1 != nil {
             //TODO
             fmt.Println("MASTER: JSON ERROR")
         }
         rebalancing_resp := raft.ClientResponse{}
         /* Tell worker to disown locks that need to be moved. */
-        send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, &rebalancing_resp)
+        send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], rebalanceCommand, &rebalancing_resp)
         if send_err != nil {
             fmt.Println("MASTER: send err")
         }
@@ -348,28 +363,44 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() {
             //TODO
             fmt.Println("MASTER: error unmarshalling")
         }
-       
-        /* Recruit new replica group to store rebalanced locks. */
-        newReplicaGroup, err := m.recruitCluster()
-        if err != nil {
-            fmt.Println("MASTER: error recruiting new cluster in rebalancing, ", err)
-        }
 
-        //TODO put this back in fsm channel and have it trigger telling a new cluster to claim the locks -> idk what these updates down there are doing but I think they have to happen after the new cluster affirms that it has claimed the locks
-        
-        num_locks_moving_now := (len(locks_to_move) - len(response.RecalcitrantLocks))
-        m.numLocksHeld[replicaGroup] -= num_locks_moving_now 
-        /* Update lock map for all but recalcitrant locks */
-        for _, curr_lock := range locks_to_move {
+        /* Recruit new replica group to store rebalanced locks. */
+        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
+
+        locks_can_move := make([]Lock, len(locks_to_move) - len(response.RecalcitrantLocks))
+        for _, curr_lock := range(locks_to_move) {
             if _, ok := response.RecalcitrantLocks[curr_lock]; !ok {
-                m.lockMap[curr_lock] = newReplicaGroup
+                locks_can_move = append(locks_can_move, curr_lock)
             }
         }
-        /* //TODO Update domain placement map */
-            m.numLocksHeld[newReplicaGroup] += num_locks_moving_now
+        /* Return response that should then be applied to fsm. */
+        transferArgs := make(map[string]string)
+        transferArgs[FunctionKey] = TransferLocksCommand
+        transferArgs[LockArrayKey] = lock_array_to_string(locks_can_move)
+        transferArgs[OldGroupKey] = strconv.Itoa(int(replicaGroup))
+        transferArgs[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
+        transferCommand, json_err2 := json.Marshal(transferArgs)
+        if json_err2 != nil {
+            fmt.Println("MASTER: json error")
+        }
+        return transferCommand
         }
 
+    /* Update state for recruiting new cluster. */
+    m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId] 
+    m.numLocksHeld[m.nextReplicaGroupId] = 0
+    m.nextReplicaGroupId++
+
     return rebalancing_func
+}
+
+func (m *MasterFSM) transferLocks(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock) {
+    m.numLocksHeld[oldGroupId] -= len(movingLocks)
+    for _, l := range(movingLocks) {
+        m.lockMap[l] = newGroupId
+    }
+    m.numLocksHeld[newGroupId] += len(movingLocks)
+    // TODO: Update domain placement map
 }
 
 func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) ([]Lock, error) {

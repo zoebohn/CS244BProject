@@ -1386,22 +1386,7 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
             // Serializing client requests, TODO paralellize
             var rpcErr error
             for _,entry := range(c.Entries) {
-                f := r.Apply(entry.Data, 0) //TODO: change to configurable value
-                if f.Error() != nil {
-                    r.logger.Printf("err: %v",f.Error())
-                    rpcErr = f.Error()
-                    resp.Success = false
-                }
-                /* If callback, make leader execute callback */
-                if f.Callback() != nil {
-                    f.Callback()()
-                }
-                data, json_err := json.Marshal(f.Response())
-                fmt.Println(f.Response())
-                if json_err != nil {
-                    //TODO
-                }
-                resp.ResponseData = data
+                r.applyCommand(entry.Data, resp, &rpcErr)
             }
             rpc.Respond(resp, rpcErr)
             // TODO: might want to also extract response from f
@@ -1410,6 +1395,30 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
         rpcErr = ErrNotLeader
         resp.Success = false
         rpc.Respond(resp, rpcErr)
+    }
+}
+
+func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error) {
+    f := r.Apply(command, 0) //TODO: change to configurable value
+    if f.Error() != nil {
+        r.logger.Printf("err: %v",f.Error())
+        *rpcErr = f.Error()
+        resp.Success = false
+    }
+    /* If callback, make leader execute callback */
+    var nextCommand []byte
+    nextCommand = nil
+    if f.Callback() != nil {
+        nextCommand = f.Callback()()
+    }
+    data, json_err := json.Marshal(f.Response())
+    fmt.Println(f.Response())
+    if json_err != nil {
+        //TODO
+    }
+    resp.ResponseData = data
+    if nextCommand != nil {
+        r.applyCommand(nextCommand, resp, rpcErr)
     }
 }
 
