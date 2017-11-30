@@ -193,7 +193,8 @@ func (w *WorkerFSM) claimLocks(lock_arr []Lock) ClaimLocksResponse {
         fmt.Println("WORKER: claiming lock ", string(l))
         w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
     }
-	return ClaimLocksResponse{LocksAdded: lock_array_to_string(lock_arr)}
+    // TODO: do we actually need this?
+    return ClaimLocksResponse{LocksAdded: lock_array_to_string(lock_arr)}
 }
 
 func (w *WorkerFSM) disownLocks(lock_arr []Lock) {

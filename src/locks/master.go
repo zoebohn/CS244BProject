@@ -107,8 +107,8 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
                 return nil, nil
             }
             lockArr := string_to_lock_array(args[LockArrayKey])
-            m.transferLocks(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), lockArr)
-            return nil, nil
+            callback := m.transferLocksInMaster(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), lockArr)
+            return nil, callback
         }
 
     return nil, nil
@@ -204,11 +204,7 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     }
     m.numLocksHeld[replicaGroup]++
     m.lockMap[l] = replicaGroup
-    /* Only do this if r not nil and is leader */
-    /* Is there a leader lock I need to acquire around this? make sure don't lose leader mandate? */
-    /* Need to make sure replica group has made lock before replying to client. */
-    /* TODO: mark not as transit when receive response from worker cluster. */
-    /* TODO: deal with casting issues here. Maybe just make new TCP transport for now?? */
+    // TODO: should this get a response?
     f := func() []byte {
             args := make(map[string]string)
             args[FunctionKey] = ClaimLocksCommand
@@ -337,70 +333,109 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
         //TODO
         fmt.Println("MASTER: error recruiting")
     }
+    /* Update state in preparation for adding new cluster. */
     workerAddrs := recruitAddrs[m.nextReplicaGroupId]
     newReplicaGroup := m.nextReplicaGroupId + 1
-
-    rebalancing_func := func() []byte {
-        /* Send RPC to worker with locks_to_move */
-        rebalanceArgs := make(map[string]string)
-        rebalanceArgs[FunctionKey] = RebalanceCommand
-        rebalanceArgs[LockArgKey] = lock_array_to_string(locks_to_move) 
-        rebalanceCommand, json_err1 := json.Marshal(rebalanceArgs)
-        if json_err1 != nil {
-            //TODO
-            fmt.Println("MASTER: JSON ERROR")
-        }
-        rebalancing_resp := raft.ClientResponse{}
-        /* Tell worker to disown locks that need to be moved. */
-        send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], rebalanceCommand, &rebalancing_resp)
-        if send_err != nil {
-            fmt.Println("MASTER: send err")
-        }
-        /* Get back recalcitrant locks */
-        var response RebalanceResponse 
-        unmarshal_err := json.Unmarshal(rebalancing_resp.ResponseData, &response)
-        if unmarshal_err != nil {
-            //TODO
-            fmt.Println("MASTER: error unmarshalling")
-        }
-
-        /* Recruit new replica group to store rebalanced locks. */
-        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
-
-        locks_can_move := make([]Lock, len(locks_to_move) - len(response.RecalcitrantLocks))
-        for _, curr_lock := range(locks_to_move) {
-            if _, ok := response.RecalcitrantLocks[curr_lock]; !ok {
-                locks_can_move = append(locks_can_move, curr_lock)
-            }
-        }
-        /* Return response that should then be applied to fsm. */
-        transferArgs := make(map[string]string)
-        transferArgs[FunctionKey] = TransferLocksCommand
-        transferArgs[LockArrayKey] = lock_array_to_string(locks_can_move)
-        transferArgs[OldGroupKey] = strconv.Itoa(int(replicaGroup))
-        transferArgs[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
-        transferCommand, json_err2 := json.Marshal(transferArgs)
-        if json_err2 != nil {
-            fmt.Println("MASTER: json error")
-        }
-        return transferCommand
-        }
-
-    /* Update state for recruiting new cluster. */
     m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId] 
     m.numLocksHeld[m.nextReplicaGroupId] = 0
     m.nextReplicaGroupId++
 
+    rebalancing_func := func() []byte {
+
+        /* Initiate rebalancing and find recalcitrant locks. */
+        recalcitrantLocks := m.initiateRebalance(replicaGroup, locks_to_move)
+
+        /* Recruit new replica group to store rebalanced locks. */
+        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
+
+        /* Using set of recalcitrant locks, determine locks that can be moved. */
+        locks_can_move := make([]Lock, len(locks_to_move) - len(recalcitrantLocks))
+        for _, curr_lock := range(locks_to_move) {
+            if _, ok := recalcitrantLocks[curr_lock]; !ok {
+                locks_can_move = append(locks_can_move, curr_lock)
+            }
+        }
+
+        /* Ask new replica group to claim set of locks that can be moved. */
+        m.askWorkerToClaimLocks(newReplicaGroup, locks_to_move)
+
+        /* Tell master to transfer ownership of locks from old group to new group. */
+        args := make(map[string]string)
+        args[FunctionKey] = TransferLocksCommand
+        args[LockArrayKey] = lock_array_to_string(locks_can_move)
+        args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
+        args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
+        command, json_err := json.Marshal(args)
+        if json_err != nil {
+            fmt.Println("MASTER: json error")
+        }
+        return command
+        }
+
     return rebalancing_func
 }
 
-func (m *MasterFSM) transferLocks(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock) {
+func (m *MasterFSM) genericClusterRequest(replicaGroup ReplicaGroupId, args map[string]string, resp *raft.ClientResponse) {
+    command, json_err := json.Marshal(args)
+    if json_err != nil {
+        //TODO
+        fmt.Println("MASTER: JSON ERROR")
+    }
+    send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, resp)
+    if send_err != nil {
+       fmt.Println("MASTER: send err")
+    }
+}
+
+func (m *MasterFSM) initiateRebalance(replicaGroup ReplicaGroupId, locksToMove []Lock) map[Lock]int {
+    /* Send RPC to worker with locks_to_move */
+    args := make(map[string]string)
+    args[FunctionKey] = RebalanceCommand
+    args[LockArrayKey] = lock_array_to_string(locksToMove)
+    resp := raft.ClientResponse{}
+    m.genericClusterRequest(replicaGroup, args, &resp)
+    var response RebalanceResponse
+    unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
+    if unmarshal_err != nil {
+        fmt.Println("MASTER: error unmarshalling")
+    }
+    return response.RecalcitrantLocks
+}
+
+func (m *MasterFSM) askWorkerToClaimLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
+    /* Send RPC to worker with locks to claim. */
+    args := make(map[string]string)
+    args[FunctionKey] = ClaimLocksCommand
+    args[LockArrayKey] = lock_array_to_string(movingLocks)
+    m.genericClusterRequest(replicaGroup, args, &raft.ClientResponse{})
+    // TODO: do we need the claimed locks anywhere?
+}
+
+func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
+    /* Send RPC to worker with locks to claim. */
+    args := make(map[string]string)
+    args[FunctionKey] = DisownLocksCommand
+    args[LockArrayKey] = lock_array_to_string(movingLocks)
+    m.genericClusterRequest(replicaGroup, args, &raft.ClientResponse{}) 
+}
+
+/* Transfer ownership of locks in master and tell old replica group to disown locks. Should only be called after new replica group owns locks. */
+func (m *MasterFSM) transferLocksInMaster(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock) func() []byte {
+    /* Update master state to show that locks have moved. */
     m.numLocksHeld[oldGroupId] -= len(movingLocks)
     for _, l := range(movingLocks) {
         m.lockMap[l] = newGroupId
     }
     m.numLocksHeld[newGroupId] += len(movingLocks)
     // TODO: Update domain placement map
+
+    /* Ask old replica group to disown locks being moved. */
+    f := func() []byte {
+        m.askWorkerToDisownLocks(oldGroupId, movingLocks)
+        return nil
+    }
+
+    return f
 }
 
 func (m *MasterFSM) getLocksToRebalance(id ReplicaGroupId) ([]Lock, error) {
