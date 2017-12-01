@@ -92,6 +92,33 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
         fmt.Println(unmarshal_err)
     }
     if response.ErrMessage != "" {
+        if response.ErrMessage == ErrLockDoesntExist {
+            /* Need to look up location again */
+            delete(lc.locks, l)
+            fmt.Println("LOCK-CLIENT: must locate lock ", string(l))
+            new_id, lookup_err := lc.askMasterToLocate(l)
+            replicaID = new_id
+            if lookup_err != nil {
+                fmt.Println("LOCK-CLIENT: error with lookup ", string(l))
+                return -1, errors.New(ErrCannotLocateLock)
+            } else {
+                lc.locks[l] = replicaID
+            }
+            session, session_err := lc.getSessionForId(replicaID)
+            if session_err != nil {
+                return -1, session_err
+            }
+            resp := raft.ClientResponse{}
+            send_err := session.SendRequest(data, &resp)
+            if send_err != nil {
+                return -1, send_err    
+            }
+            unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
+            if unmarshal_err != nil {
+                fmt.Println("LOCK-CLIENT: error unmarshalling acquire")
+                fmt.Println(unmarshal_err)
+             }
+        }
         return response.SeqNo, errors.New(response.ErrMessage)
     }
     return response.SeqNo, nil
