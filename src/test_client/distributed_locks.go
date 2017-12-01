@@ -10,6 +10,8 @@ import (
 
 var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
 
+var numTestsFailed = 0
+
 func main() {
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err != nil {
@@ -26,28 +28,16 @@ func main() {
     fmt.Println("")
     fmt.Println("")
     //test rebalancing
-    test_recalcitrant(lc)
-    //test_rebalancing(lc)
-    /*    test_simple(lc)
-    fmt.Println("")
-    fmt.Println("")
-    test_double_acquire(lc)
-    fmt.Println("")
-    fmt.Println("")
-    test_release_unacquired_lock(lc)
-    fmt.Println("")
-    fmt.Println("")
-    test_duplicate_create(lc)
-    fmt.Println("")
-    fmt.Println("")
-    test_creating_domains(lc)
-    fmt.Println("")
-    fmt.Println("")
-    test_acquire_nonexistant_lock(lc)
-    fmt.Println("")
-    fmt.Println("")
+    output_test(test_recalcitrant(lc), "recalcitrant_locks")
+    output_test(test_rebalancing(lc), "basic_rebalancing")
+    output_test(test_simple(lc), "simple")
+    output_test(test_double_acquire(lc), "double_acquire")
+    output_test(test_release_unacquired_lock(lc), "release_unacquired")
+    output_test(test_duplicate_create(lc), "duplicate_create")
+    output_test(test_creating_domains(lc),"create_domain")
+    output_test(test_acquire_nonexistant_lock(lc), "nonexistant_lock")
     /* Second client */
-  /*  trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
         fmt.Println("err: ", err)
         return
@@ -59,54 +49,62 @@ func main() {
     } else {
         fmt.Println("successfully created lock client")
     }
-    fmt.Println("multiple client tests")
-    fmt.Println("")
-    test_race_domain(lc, lc2)
-    fmt.Println("")
-    fmt.Println("")
-    test_multiple_acquires_2(lc, lc2)
-    fmt.Println("")
-    fmt.Println("")
-    test_release_unacquired_2(lc, lc2)
-    fmt.Println("")
-    fmt.Println("")
-*/}
-
-func test_rebalancing(lc *locks.LockClient) {
-    counter := 0
-    for counter < 5 {
-        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
-        fmt.Println("create lock")
-        create_err := lc.CreateLock(lock)
-        if create_err != nil {
-            fmt.Println("error with creating " + string(lock))
-            fmt.Println(create_err)
-        } else {
-            fmt.Println("successfully created lock " + string(lock))
-        }
-
-        counter += 1
-    }
+    output_test(test_race_domain(lc, lc2), "race_domain")
+    output_test(test_multiple_acquires_2(lc, lc2), "multiple_acquire")
+    output_test(test_release_unacquired_2(lc, lc2), "release_unacquired")
+    fmt.Println("************* NUMBER OF TESTS FAILED: ", numTestsFailed, " *****************")
 }
 
-func test_recalcitrant(lc *locks.LockClient) {
+func output_test(success bool, name string) {
+    if success {
+        fmt.Println("--- ", name, " PASSED ---")
+    } else {
+        fmt.Println("*** ERROR: ", name, " FAILED ***")
+        numTestsFailed++
+    }
+    fmt.Println("")
+}
+
+func test_rebalancing(lc *locks.LockClient) bool {
     counter := 0
-    for counter < 4 {
+    success := true
+    for counter < 5 {
         lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
-        fmt.Println("create lock")
+        //fmt.Println("create lock")
         create_err := lc.CreateLock(lock)
         if create_err != nil {
             fmt.Println("error with creating " + string(lock))
             fmt.Println(create_err)
+            success = false
         } else {
-            fmt.Println("successfully created lock " + string(lock))
+            //fmt.Println("successfully created lock " + string(lock))
+        }
+        counter += 1
+    }
+    return success
+}
+
+func test_recalcitrant(lc *locks.LockClient) bool {
+    counter := 0
+    success := true
+    for counter < 4 {
+        lock := locks.Lock("recal_lock" + strconv.Itoa(counter))
+        //fmt.Println("create lock")
+        create_err := lc.CreateLock(lock)
+        if create_err != nil {
+            fmt.Println("error with creating " + string(lock))
+            fmt.Println(create_err)
+            success = false
+        } else {
+            //fmt.Println("successfully created lock " + string(lock))
         }
         id, acquire_err := lc.AcquireLock(lock)
         if id == -1 || acquire_err != nil {
             fmt.Println("error with acquiring")
             fmt.Println(acquire_err)
+            success = false
         } else {
-            fmt.Println("successfully acquired lock")
+            //fmt.Println("successfully acquired lock")
         }
         counter += 1
     }
@@ -114,13 +112,14 @@ func test_recalcitrant(lc *locks.LockClient) {
     //time.Sleep(5000 * time.Millisecond) 
     counter = 0
     for counter < 4 {
-        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        lock := locks.Lock("recal_lock" + strconv.Itoa(counter))
         release_err := lc.ReleaseLock(lock)
         if release_err != nil {
             fmt.Println("error with releasing")
             fmt.Println(release_err)
+            success = false
         } else {
-            fmt.Println("successfully released lock")
+            //fmt.Println("successfully released lock")
         }
         counter += 1
     }
@@ -128,138 +127,127 @@ func test_recalcitrant(lc *locks.LockClient) {
     //time.Sleep(10000 * time.Millisecond)
     counter = 0
     for counter < 4 {
-        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        lock := locks.Lock("recal_lock" + strconv.Itoa(counter))
         id, acquire_err := lc.AcquireLock(lock)
         if id == -1 || acquire_err != nil {
             fmt.Println("error with acquiring")
             fmt.Println(acquire_err)
+            success = false
         } else {
-            fmt.Println("successfully acquired lock")
+            //fmt.Println("successfully acquired lock")
         }
         counter += 1
     }
+    return success
 }
 
 /* Create, acquire, and release lock; one client */
-func test_simple(lc *locks.LockClient) {
+func test_simple(lc *locks.LockClient) bool {
     lock := locks.Lock("simple_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created lock")
+        success = false
     }
-    fmt.Println("acquire lock")
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
         fmt.Println("error with acquiring")
         fmt.Println(acquire_err)
-    } else {
-        fmt.Println("successfully acquired lock")
+        success = false
     }
-    fmt.Println("release lock")
     release_err := lc.ReleaseLock(lock)
     if release_err != nil {
         fmt.Println("error with releasing")
         fmt.Println(release_err)
-    } else {
-        fmt.Println("successfully released lock")
-    } 
+        success = false
+    }
+    return success
 }
 
-func test_acquire_nonexistant_lock(lc *locks.LockClient) {
+func test_acquire_nonexistant_lock(lc *locks.LockClient) bool {
     lock := locks.Lock("doesnotexist")
-    fmt.Println("acquire lock")
+    success := true
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
-        fmt.Println("error with acquiring")
         fmt.Println(acquire_err)
     } else {
-        fmt.Println("successfully acquired lock")
+        success = false
     }
+    return success
 }
 
-func test_double_acquire(lc *locks.LockClient) {
+func test_double_acquire(lc *locks.LockClient) bool {
     lock := locks.Lock("double_acquire_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created lock")
+        success = false
     }
-    fmt.Println("acquire lock")
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
         fmt.Println("error with acquiring")
         fmt.Println(acquire_err)
-    } else {
-        fmt.Println("successfully acquired lock")
+        success = false
     }
-    fmt.Println("second acquire lock")
     id, acquire_err = lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
-        fmt.Println("error with second acquiring")
         fmt.Println(acquire_err)
     } else {
-        fmt.Println("successfully acquired lock twice")
+        success = false 
     }
+    return success
 }
 
-func test_release_unacquired_lock(lc *locks.LockClient) {
+func test_release_unacquired_lock(lc *locks.LockClient) bool {
     lock := locks.Lock("unacquired_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created lock")
+        success = false
     }
-    fmt.Println("release lock")
     release_err := lc.ReleaseLock(lock)
     if release_err != nil {
-        fmt.Println("error with bad releasing")
         fmt.Println(release_err)
     } else {
-        fmt.Println("successfully released unacquired lock")
-    } 
+        success = false 
+    }
+    return success
 }
 
-func test_duplicate_create(lc *locks.LockClient) {
+func test_duplicate_create(lc *locks.LockClient) bool {
     lock := locks.Lock("simple_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc.CreateLock(lock)
     if create_err != nil {
-        fmt.Println("error with creating duplicate")
         fmt.Println(create_err)
     } else {
-        fmt.Println("successfully created duplicate lock")
+        success = false
     }
+    return success
 }
 
 /* Create domains */
-func test_creating_domains(lc *locks.LockClient) {
+func test_creating_domains(lc *locks.LockClient) bool {
     domain := locks.Domain("/first")
-    fmt.Println("create domain")
+    success := true
     create_err := lc.CreateDomain(domain)
     if create_err != nil {
-        fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created domain")
+        success = false
     }
 
     /* Create dup domain */
     create_err = lc.CreateDomain(domain)
     if create_err != nil {
-        fmt.Println("error with second domain creating")
         fmt.Println(create_err)
     } else {
-        fmt.Println("successfully created duplicate domain")
+        success = false
     }
 
     /* Create subdomain */
@@ -268,19 +256,17 @@ func test_creating_domains(lc *locks.LockClient) {
     if create_err != nil {
         fmt.Println("error with creating subdomain")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created subdomain")
+        success = false
     }
 
     /* Create invalid subdomain */
     subdomain = locks.Domain("/first/third/hi")
     create_err = lc.CreateDomain(subdomain)
     if create_err != nil {
-        fmt.Println("error with creating bad subdomain")
         fmt.Println(create_err)
     } else {
         fmt.Println("successfully created bad subdomain")
-
+        success = false
     }
 
     /* Create root domain */
@@ -290,89 +276,84 @@ func test_creating_domains(lc *locks.LockClient) {
         fmt.Println("error with creating root domain")
         fmt.Println(create_err)
     } else {
+        success = false
         fmt.Println("successfully created bad root domain")
-
     }
+    return success
 
 }
 
 /* Two clients race to create a domain */
-func test_race_domain(lc1 *locks.LockClient, lc2 *locks.LockClient) {
+func test_race_domain(lc1 *locks.LockClient, lc2 *locks.LockClient) bool {
     domain := locks.Domain("/firsty")
-    fmt.Println("create domain")
+    success := true
     create_err := lc1.CreateDomain(domain)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created domain")
+        success = false
     }
 
     /* Create dup domain */
     create_err = lc2.CreateDomain(domain)
     if create_err != nil {
-        fmt.Println("error with second domain creating")
         fmt.Println(create_err)
     } else {
+        success = false
         fmt.Println("successfully created duplicate domain")
     }
+    return success
 
 }
 
-func test_multiple_acquires_2(lc1 *locks.LockClient, lc2 *locks.LockClient) {
+func test_multiple_acquires_2(lc1 *locks.LockClient, lc2 *locks.LockClient) bool {
     lock := locks.Lock("race_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc1.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created lock")
+        success = false
     }
-    fmt.Println("acquire lock")
     id, acquire_err := lc1.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
         fmt.Println("error with acquiring")
         fmt.Println(acquire_err)
-    } else {
-        fmt.Println("successfully acquired lock")
+        success = false
     }
-    fmt.Println("acquire lock 2")
     id, acquire_err = lc2.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
-        fmt.Println("error with second acquiring")
         fmt.Println(acquire_err)
     } else {
+        success = false
         fmt.Println("successfully acquired bad lock")
     }
+    return success
 
 }
 
-func test_release_unacquired_2(lc1 *locks.LockClient, lc2 *locks.LockClient) {
+func test_release_unacquired_2(lc1 *locks.LockClient, lc2 *locks.LockClient) bool {
     lock := locks.Lock("race_2_lock")
-    fmt.Println("create lock")
+    success := true
     create_err := lc1.CreateLock(lock)
     if create_err != nil {
         fmt.Println("error with creating")
         fmt.Println(create_err)
-    } else {
-        fmt.Println("successfully created lock")
+        success = false
     }
-    fmt.Println("acquire lock")
     id, acquire_err := lc1.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
         fmt.Println("error with acquiring")
         fmt.Println(acquire_err)
-    } else {
-        fmt.Println("successfully acquired lock")
+        success = false
     }
-    fmt.Println("acquire lock 2")
     release_err := lc2.ReleaseLock(lock)
     if release_err != nil {
-        fmt.Println("error with bad release")
         fmt.Println(release_err)
     } else {
+        success = false
         fmt.Println("successfully illegally released")
     }
+    return success
 
 }

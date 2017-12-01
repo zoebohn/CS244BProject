@@ -32,7 +32,7 @@ type MasterFSM struct {
 
 
 /* Constants for recruiting new clusters. */
-var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}}
+var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}, {"127.0.0.1:6006", "127.0.0.1:6007", "127.0.0.1:6008", "127.0.0.1:6009"}, {"127.0.0.1:6010", "127.0.0.1:6011", "127.0.0.1:6012"}, {"127.0.0.1:6013", "127.0.0.1:6014", "127.0.0.1:6015"}, {"127.0.0.1:6016", "127.0.0.1:6017", "127.0.0.1:6018"}}
 const numClusterServers = 3
 
 /* Constants for rebalancing */
@@ -301,7 +301,8 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     chosen := replicaGroups[0]
     minLoad := m.numLocksHeld[chosen]
     for _, replicaGroup := range(replicaGroups) {
-        if minLoad < m.numLocksHeld[replicaGroup] {
+        fmt.Println("group ", replicaGroup, " holds ", m.numLocksHeld[replicaGroup])
+        if minLoad > m.numLocksHeld[replicaGroup] {
             chosen = replicaGroup
             minLoad = m.numLocksHeld[replicaGroup]
         }
@@ -309,6 +310,7 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     if chosen == -1 {
         return -1, ErrNoPlacement
     }
+    fmt.Println("chosen: ", chosen)
     return chosen, "" 
 }
 
@@ -343,6 +345,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     /* Split managed locks into 2 - tell worker */
     locksToMove := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
+    fmt.Println("next replica group ID: ", m.nextReplicaGroupId)
     workerAddrs := recruitAddrs[m.nextReplicaGroupId]
     newReplicaGroup := m.nextReplicaGroupId
     m.clusterMap[newReplicaGroup] = recruitAddrs[m.nextReplicaGroupId] 
