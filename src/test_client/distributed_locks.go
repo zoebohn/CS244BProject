@@ -26,7 +26,8 @@ func main() {
     fmt.Println("")
     fmt.Println("")
     //test rebalancing
-    test_rebalancing(lc)
+    test_recalcitrant(lc)
+    //test_rebalancing(lc)
     /*    test_simple(lc)
     fmt.Println("")
     fmt.Println("")
@@ -82,6 +83,58 @@ func test_rebalancing(lc *locks.LockClient) {
             fmt.Println(create_err)
         } else {
             fmt.Println("successfully created lock " + string(lock))
+        }
+
+        counter += 1
+    }
+}
+
+func test_recalcitrant(lc *locks.LockClient) {
+    counter := 0
+    for counter < 4 {
+        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        fmt.Println("create lock")
+        create_err := lc.CreateLock(lock)
+        if create_err != nil {
+            fmt.Println("error with creating " + string(lock))
+            fmt.Println(create_err)
+        } else {
+            fmt.Println("successfully created lock " + string(lock))
+        }
+        id, acquire_err := lc.AcquireLock(lock)
+        if id == -1 || acquire_err != nil {
+            fmt.Println("error with acquiring")
+            fmt.Println(acquire_err)
+        } else {
+            fmt.Println("successfully acquired lock")
+        }
+        counter += 1
+    }
+
+    time.Sleep(100 * time.Millisecond) 
+    counter = 0
+    for counter < 4 {
+        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        release_err := lc.ReleaseLock(lock)
+        if release_err != nil {
+            fmt.Println("error with releasing")
+            fmt.Println(release_err)
+        } else {
+            fmt.Println("successfully released lock")
+        }
+        counter += 1
+    }
+
+    time.Sleep(100 * time.Millisecond)
+    counter = 0
+    for counter < 4 {
+        lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
+        id, acquire_err := lc.AcquireLock(lock)
+        if id == -1 || acquire_err != nil {
+            fmt.Println("error with acquiring")
+            fmt.Println(acquire_err)
+        } else {
+            fmt.Println("successfully acquired lock")
         }
         counter += 1
     }
