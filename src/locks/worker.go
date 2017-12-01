@@ -145,10 +145,13 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
        If not held, acquire and return true.
        Else, return false. */
      if _, ok := w.lockStateMap[l]; !ok {
+         fmt.Println("WORKER: lock state map ", w.lockStateMap)
+         fmt.Println("WORKER: error lock doesn't exist")
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
      if state.Held || state.Disabled {
+         fmt.Println("WORKER: error lock held or disabled")
          return AcquireLockResponse{-1, ErrLockHeld}
      }
      state.Held = true
@@ -230,6 +233,7 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
             //TODO
             fmt.Println("WORKER: JSON ERROR")
         }
+        fmt.Println("WORKER: release recalcitrant lock")
         send_err := raft.SendSingletonRequestToCluster(w.masterCluster, command, &raft.ClientResponse{})
         if send_err != nil {
             fmt.Println("WORKER: error while sending recalcitrant release ")

@@ -181,7 +181,12 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
         // TODO: try new way to find leader now from heartbeats
         _, err = decodeResponse(s.currConn, &response)
         if err != nil {
-            s.currConn, _ = s.trans.getConn(response.LeaderAddress)
+            if response.LeaderAddress != "" {
+                s.currConn, _ = s.trans.getConn(response.LeaderAddress)
+             } else {
+                /* Wait for leader to be elected. */
+                time.Sleep(1000*time.Millisecond)
+            }
         }
         retries--
     }
@@ -206,6 +211,7 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         err = sendRPC(conn, rpcClientRequest, request)
         /* Try another server if server went down. */
         for err != nil {
+            fmt.Println("error sending: ", err)
             if retries <= 0 {
                 return errors.New("Failed to find active leader.")
             }
@@ -220,7 +226,12 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         // TODO: try new way to find leader now from heartbeats
         _, err = decodeResponse(conn, &response)
         if err != nil {
-            conn, _ = buildNetConn(response.LeaderAddress)
+            if response.LeaderAddress != "" {
+                conn, _ = buildNetConn(response.LeaderAddress)
+             } else {
+                 /* Wait for leader to be elcted. */
+                 time.Sleep(1000*time.Millisecond)
+            }
         }
         retries--
     }

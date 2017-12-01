@@ -257,8 +257,6 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     }
     domain := getParentDomain(string(d))
     replicaGroups, ok := m.domainPlacementMap[domain]
-    fmt.Println(domain)
-    fmt.Println("HERE")
     if !ok || len(replicaGroups) == 0 {
         return CreateDomainResponse{ErrNoIntermediateDomain}
     }
@@ -342,15 +340,13 @@ func recruitInitialCluster(masters []*MasterFSM) (error) {
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     fmt.Println("MASTER: REBALANCING")
-    fmt.Println("next id: " + strconv.Itoa(int(m.nextReplicaGroupId)))
-    
     /* Split managed locks into 2 - tell worker */
     locksToMove := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
     workerAddrs := recruitAddrs[m.nextReplicaGroupId]
-    newReplicaGroup := m.nextReplicaGroupId + 1
-    m.clusterMap[m.nextReplicaGroupId] = recruitAddrs[m.nextReplicaGroupId] 
-    m.numLocksHeld[m.nextReplicaGroupId] = 0
+    newReplicaGroup := m.nextReplicaGroupId
+    m.clusterMap[newReplicaGroup] = recruitAddrs[m.nextReplicaGroupId] 
+    m.numLocksHeld[newReplicaGroup] = 0
     m.nextReplicaGroupId++
     m.rebalancingInProgress[replicaGroup] = true
 
@@ -403,7 +399,7 @@ func (m *MasterFSM) genericClusterRequest(replicaGroup ReplicaGroupId, args map[
     }
     send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, resp)
     if send_err != nil {
-       fmt.Println("MASTER: send err")
+       fmt.Println("MASTER: send err ", send_err)
     }
 }
 
@@ -424,6 +420,7 @@ func (m *MasterFSM) initiateRebalance(replicaGroup ReplicaGroupId, locksToMove [
 
 func (m *MasterFSM) askWorkerToClaimLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
     /* Send RPC to worker with locks to claim. */
+    fmt.Println("MASTER: ask worker to claim locks\n")
     args := make(map[string]string)
     args[FunctionKey] = ClaimLocksCommand
     args[LockArrayKey] = lock_array_to_string(movingLocks)
@@ -433,6 +430,7 @@ func (m *MasterFSM) askWorkerToClaimLocks(replicaGroup ReplicaGroupId, movingLoc
 
 func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
     /* Send RPC to worker with locks to claim. */
+    fmt.Println("MASTER: ask worker to disown locks")
     args := make(map[string]string)
     args[FunctionKey] = DisownLocksCommand
     args[LockArrayKey] = lock_array_to_string(movingLocks)
@@ -545,6 +543,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    delete(m.recalcitrantDestMap, l)
 
    sendLockFunc := func() []byte {
+       fmt.Println("MASTER: send ", l, " to ", newReplicaGroup, " at ", m.clusterMap[newReplicaGroup])
        m.askWorkerToClaimLocks(newReplicaGroup, []Lock{l})
 
        /* Tell master to transfer ownership of locks. */

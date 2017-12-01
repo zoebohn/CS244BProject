@@ -119,6 +119,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
                 fmt.Println("LOCK-CLIENT: error unmarshalling acquire")
                 fmt.Println(unmarshal_err)
              }
+             return response.SeqNo, nil
         }
         return response.SeqNo, errors.New(response.ErrMessage)
     }
