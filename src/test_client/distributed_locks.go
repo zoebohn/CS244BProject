@@ -30,6 +30,7 @@ func main() {
     //test rebalancing
     output_test(test_recalcitrant(lc), "recalcitrant_locks")
     output_test(test_rebalancing(lc), "basic_rebalancing")
+    output_test(test_rebalancing_domains(lc), "rebalancing domains")
     output_test(test_simple(lc), "simple")
     output_test(test_double_acquire(lc), "double_acquire")
     output_test(test_release_unacquired_lock(lc), "release_unacquired")
@@ -139,6 +140,66 @@ func test_recalcitrant(lc *locks.LockClient) bool {
         counter += 1
     }
     return success
+}
+
+func test_rebalancing_domains(lc *locks.LockClient) bool {
+    counter := 0
+    success := true
+    err1 := lc.CreateDomain(locks.Domain("/a"))
+    if err1 != nil {
+        fmt.Println("error with creating domain a")
+        fmt.Println(err1)
+        success = false
+    }
+    err2 := lc.CreateDomain(locks.Domain("/b"))
+    if err2 != nil {
+        fmt.Println("error with creating domain b")
+        fmt.Println(err2)
+        success = false
+    }
+    for counter < 2 {
+        lock := locks.Lock("/a/lock" + strconv.Itoa(counter))
+        create_err := lc.CreateLock(lock)
+        if create_err != nil {
+            fmt.Println("error with creating " + string(lock))
+            fmt.Println(create_err)
+            success = false
+        }
+        counter++
+    }
+    for counter < 4 {
+        lock := locks.Lock("/b/lock" + strconv.Itoa(counter))
+        create_err := lc.CreateLock(lock)
+        if create_err != nil {
+            fmt.Println("error with creating " + string(lock))
+            fmt.Println(create_err)
+            success = false
+        }
+        counter++
+    }
+    counter = 0
+    for counter < 2 {
+        lock := locks.Lock("/a/lock" + strconv.Itoa(counter))
+        id, acquire_err := lc.AcquireLock(lock)
+        if id == -1 || acquire_err != nil {
+            fmt.Println("error with acquiring")
+            fmt.Println(acquire_err)
+            success = false
+        }
+        counter++
+    }
+    for counter < 4 {
+        lock := locks.Lock("/b/lock" + strconv.Itoa(counter))
+        id, acquire_err := lc.AcquireLock(lock)
+        if id == -1 || acquire_err != nil {
+            fmt.Println("error with acquiring")
+            fmt.Println(acquire_err)
+            success = false
+        }
+        counter++
+    }
+    return success
+
 }
 
 /* Create, acquire, and release lock; one client */

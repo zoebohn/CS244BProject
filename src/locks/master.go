@@ -32,7 +32,7 @@ type MasterFSM struct {
 
 
 /* Constants for recruiting new clusters. */
-var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}, {"127.0.0.1:6006", "127.0.0.1:6007", "127.0.0.1:6008", "127.0.0.1:6009"}, {"127.0.0.1:6010", "127.0.0.1:6011", "127.0.0.1:6012"}, {"127.0.0.1:6013", "127.0.0.1:6014", "127.0.0.1:6015"}, {"127.0.0.1:6016", "127.0.0.1:6017", "127.0.0.1:6018"}}
+var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}, {"127.0.0.1:6006", "127.0.0.1:6007", "127.0.0.1:6008", "127.0.0.1:6009"}, {"127.0.0.1:6010", "127.0.0.1:6011", "127.0.0.1:6012"}, {"127.0.0.1:6013", "127.0.0.1:6014", "127.0.0.1:6015"}, {"127.0.0.1:6016", "127.0.0.1:6017", "127.0.0.1:6018"}, {"127.0.0.1:6019", "127.0.0.1:6020", "127.0.0.1:6021"}}
 const numClusterServers = 3
 
 /* Constants for rebalancing */
@@ -301,7 +301,6 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     chosen := replicaGroups[0]
     minLoad := m.numLocksHeld[chosen]
     for _, replicaGroup := range(replicaGroups) {
-        fmt.Println("group ", replicaGroup, " holds ", m.numLocksHeld[replicaGroup])
         if minLoad > m.numLocksHeld[replicaGroup] {
             chosen = replicaGroup
             minLoad = m.numLocksHeld[replicaGroup]
@@ -310,7 +309,6 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     if chosen == -1 {
         return -1, ErrNoPlacement
     }
-    fmt.Println("chosen: ", chosen)
     return chosen, "" 
 }
 
@@ -482,9 +480,16 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     for d := range(movingDomains) {
         m.domainPlacementMap[d] = append(m.domainPlacementMap[d], newGroupId)
         if _, ok := remainingDomains[d]; !ok {
-            for i := range(m.domainPlacementMap[d]) {
+            i := 0
+            for i < len(m.domainPlacementMap[d]) {
                 if m.domainPlacementMap[d][i] == oldGroupId {
-                    m.domainPlacementMap[d] = append(m.domainPlacementMap[d][:i], m.domainPlacementMap[d][i+1:]...)
+                    if i+1 < len(m.domainPlacementMap[d]) {
+                        m.domainPlacementMap[d] = append(m.domainPlacementMap[d][:i], m.domainPlacementMap[d][i+1:]...)
+                    } else {
+                        m.domainPlacementMap[d] = m.domainPlacementMap[d][:i]
+                    }
+                } else {
+                    i++
                 }
             }
         }
