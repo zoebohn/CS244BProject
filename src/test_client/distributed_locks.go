@@ -111,7 +111,7 @@ func test_recalcitrant(lc *locks.LockClient) {
         counter += 1
     }
 
-    time.Sleep(100 * time.Millisecond) 
+    time.Sleep(5000 * time.Millisecond) 
     counter = 0
     for counter < 4 {
         lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
@@ -125,7 +125,7 @@ func test_recalcitrant(lc *locks.LockClient) {
         counter += 1
     }
 
-    time.Sleep(100 * time.Millisecond)
+    time.Sleep(10000 * time.Millisecond)
     counter = 0
     for counter < 4 {
         lock := locks.Lock("simple_lock" + strconv.Itoa(counter))

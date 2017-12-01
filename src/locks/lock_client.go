@@ -103,6 +103,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
                 return -1, errors.New(ErrCannotLocateLock)
             } else {
                 lc.locks[l] = replicaID
+                fmt.Println("LOCK-CLIENT: lookup succeeded", string(l))
             }
             session, session_err := lc.getSessionForId(replicaID)
             if session_err != nil {
