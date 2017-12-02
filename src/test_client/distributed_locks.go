@@ -18,7 +18,7 @@ func main() {
         fmt.Println("err: ", err)
         return
     }
-    /*lc, err := locks.CreateLockClient(trans, masterServers)
+    lc, err := locks.CreateLockClient(trans, masterServers)
     if err != nil {
         fmt.Println("error with creating lock client")
         fmt.Println(err)
@@ -38,7 +38,7 @@ func main() {
     output_test(test_creating_domains(lc),"create_domain")
     output_test(test_acquire_nonexistant_lock(lc), "nonexistant_lock")
     /* Second client */
-    /*trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
         fmt.Println("err: ", err)
         return
@@ -53,7 +53,9 @@ func main() {
     output_test(test_race_domain(lc, lc2), "race_domain")
     output_test(test_multiple_acquires_2(lc, lc2), "multiple_acquire")
     output_test(test_release_unacquired_2(lc, lc2), "release_unacquired")
-    */output_test(test_client_fails_and_releases(trans), "client_fails_and_releases")
+    lc.DestroyLockClient()
+    lc2.DestroyLockClient()
+    output_test(test_client_fails_and_releases(trans), "client_fails_and_releases")
     fmt.Println("************* NUMBER OF TESTS FAILED: ", numTestsFailed, " *****************")
 }
 

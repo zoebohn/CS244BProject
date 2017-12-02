@@ -54,7 +54,6 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
     if err != nil {
         //TODO
     }
-    fmt.Println("received apply in worker")
     function := args[FunctionKey]
     switch function {
         case ClaimLocksCommand:
@@ -80,12 +79,10 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             response := w.handleRebalanceRequest(lock_arr)
             return response, nil //TODO: idk about this
         case ReleaseForClientCommand:
-            fmt.Println("release for client!")
             c := raft.ServerAddress(args[ClientAddrKey])
             w.releaseForClient(c)
             return nil, nil
     }
-    fmt.Println("no match ", function)
 
     return nil, nil
 }
@@ -157,7 +154,6 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
-     fmt.Println(state)
      if state.Held || state.Disabled {
          fmt.Println("WORKER: error lock held or disabled")
          return AcquireLockResponse{-1, ErrLockHeld}
@@ -253,12 +249,10 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
 }
 
 func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
+    fmt.Println("WORKER: Releasing locks for client ", client)
     for l := range(w.lockStateMap) {
         state := w.lockStateMap[l]
-        fmt.Println("lock name ", l, ", client of lock ", state.Client, ", my IP ", client)
         if (state.Client == client && state.Held) {
-            fmt.Println("RELEASE")
-            fmt.Println(state)
             state.Held = false
             state.Client = ""
             w.lockStateMap[l] = state
