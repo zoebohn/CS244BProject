@@ -11,13 +11,13 @@ import(
 type WorkerFSM struct{
     /* Map of lock to lock state. */
     lockStateMap    map[Lock]lockState
-    sequencer       Sequencer
+    sequencerMap    map[Lock]Sequencer
     masterCluster   []raft.ServerAddress
 }
 
 type WorkerSnapshot struct {
     LockStateMap map[Lock]lockState
-    SequencerInt int
+    SequencerMap map[Lock]Sequencer
     MasterCluster []raft.ServerAddress
 }
 
@@ -37,7 +37,7 @@ func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     for i := range(workers) {
         workers[i] = &WorkerFSM {
             lockStateMap: make(map[Lock]lockState),
-            sequencer: 0,
+            sequencerMap: make(map[Lock]Sequencer),
             masterCluster: masterCluster,
         }
     }
@@ -94,7 +94,7 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
         return err
     }
     w.lockStateMap = snapshotRestored.LockStateMap
-    w.sequencer = Sequencer(snapshotRestored.SequencerInt)
+    w.sequencerMap = snapshotRestored.SequencerMap
     w.masterCluster = snapshotRestored.MasterCluster
     return nil
 }
@@ -102,7 +102,7 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
     /* TODO need to lock fsm? */
-    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerInt: int(w.sequencer), MasterCluster: w.masterCluster}
+    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerMap: w.sequencerMap, MasterCluster: w.masterCluster}
     return s, nil
 }
 
@@ -157,8 +157,8 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      state.Held = true
      state.Client = client
      w.lockStateMap[l] = state
-     w.sequencer += 1
-     return AcquireLockResponse{w.sequencer, ""}
+     w.sequencerMap[l] += 1
+     return AcquireLockResponse{w.sequencerMap[l], ""}
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
@@ -195,6 +195,7 @@ func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
     for _, l := range lock_arr {
         fmt.Println("WORKER: claiming lock ", string(l))
         w.lockStateMap[l] = lockState{Held: false, Client: "N/A", Recalcitrant: false, }
+        w.sequencerMap[l] = 0
     }
 }
 
