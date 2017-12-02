@@ -27,6 +27,7 @@ func main() {
     }
     fmt.Println("")
     fmt.Println("")
+    output_test(test_validate(lc), "validate_lock")
     //test rebalancing
     output_test(test_recalcitrant(lc), "recalcitrant_locks")
     output_test(test_rebalancing(lc), "basic_rebalancing")
@@ -69,19 +70,37 @@ func output_test(success bool, name string) {
     fmt.Println("")
 }
 
+func test_validate(lc *locks.LockClient) bool {
+    lock := locks.Lock("validate_lock")
+    create_err := lc.CreateLock(lock)
+    if create_err != nil {
+       return false 
+    }
+    id, acquire_err := lc.AcquireLock(lock)
+    if id == -1 || acquire_err != nil {
+       return false 
+    }
+    valid, validate_err := lc.ValidateLock(lock, id)
+    if !valid || validate_err != nil {
+        return false
+    }
+    valid, validate_err = lc.ValidateLock(lock, id - 1)
+    if valid || validate_err != nil {
+        return false
+    }
+    return true
+}
+
 func test_rebalancing(lc *locks.LockClient) bool {
     counter := 0
     success := true
     for counter < 5 {
         lock := locks.Lock("simple_lock" + strconv.Itoa(counter))
-        //fmt.Println("create lock")
         create_err := lc.CreateLock(lock)
         if create_err != nil {
             fmt.Println("error with creating " + string(lock))
             fmt.Println(create_err)
             success = false
-        } else {
-            //fmt.Println("successfully created lock " + string(lock))
         }
         counter += 1
     }
