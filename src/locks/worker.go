@@ -6,6 +6,7 @@ import(
     "io"
     "encoding/json"
     "bytes"
+    "strconv"
 )
 
 type WorkerFSM struct{
@@ -74,6 +75,15 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             clientAddr := raft.ServerAddress(args[ClientAddrKey])
             response, callback := w.releaseLock(l, clientAddr)
             return response, callback
+        case ValidateLockCommand:
+            l := Lock(args[LockArgKey])
+            s, err := strconv.Atoi(args[SequencerArgKey])
+            if err != nil {
+                fmt.Println("WORKER: error unpacking command")
+                return ValidateLockResponse{false, ErrInvalidRequest}, nil
+            }
+            response := w.validateLock(l, Sequencer(s))
+            return response, nil
         case RebalanceCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             response := w.handleRebalanceRequest(lock_arr)
@@ -193,6 +203,17 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     }
 
     return ReleaseLockResponse{""}, nil
+}
+
+func (w *WorkerFSM) validateLock(l Lock, s Sequencer) ValidateLockResponse {
+    if _, ok := w.lockStateMap[l]; !ok {
+        return ValidateLockResponse{false, ErrLockDoesntExist}
+    }
+    if s == w.sequencerMap[l] {
+        return ValidateLockResponse{true, ""}
+    } else {
+        return ValidateLockResponse{false, ""}
+    }
 }
 
 func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
