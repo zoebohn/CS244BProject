@@ -206,21 +206,26 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
     err = errors.New("")
     /* Send heartbeat to active leader. Connect to active leader if connection no longer to active leader. */
     for err != nil {
-        if retries <= 0 {
-            return errors.New("Failed to find active leader.")
-        }
         if conn == nil {
             return errors.New("No current connection.")
+        }
+        if retries <= 0 {
+            conn.conn.Close()
+            return errors.New("Failed to find active leader.")
         }
         err = sendRPC(conn, rpcClientRequest, request)
         /* Try another server if server went down. */
         for err != nil {
             fmt.Println("error sending: ", err)
             if retries <= 0 {
+                conn.conn.Close()
                 return errors.New("Failed to find active leader.")
             }
             conn, err = findActiveServerWithoutTrans(addrs)
             if err != nil {
+                if conn != nil {
+                    conn.conn.Close()
+                }
                 return errors.New("No active server found.")
             }
             retries--
@@ -229,6 +234,7 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         /* Decode response if necesary. Try new server to find leader if necessary. */
         // TODO: try new way to find leader now from heartbeats
         _, err = decodeResponse(conn, &response)
+        conn.conn.Close()
         if err != nil {
             if response.LeaderAddress != "" {
                 conn, _ = buildNetConn(response.LeaderAddress)
@@ -258,6 +264,7 @@ func findActiveServerWithoutTrans(addrs []ServerAddress) (*netConn, error) {
         if err == nil {
             return conn, nil
         }
+        conn.conn.Close()
     }
     return nil, errors.New("No active raft servers.")
 }
