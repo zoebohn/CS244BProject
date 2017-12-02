@@ -11,11 +11,12 @@ import (
 )
 
 type Session struct {
-    trans       *NetworkTransport
-    currConn    *netConn
-    raftServers []ServerAddress
-    stopCh      chan bool
-    active      bool
+    trans               *NetworkTransport
+    currConn            *netConn
+    raftServers         []ServerAddress
+    stopCh              chan bool
+    active              bool
+    endSessionCommand   []byte
 }
 
 /* Take address of Raft server and entries in log to be committed.
@@ -70,12 +71,13 @@ func SendSingletonRequestToCluster(addrs []ServerAddress, data []byte, resp *Cli
 
 // Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
 // Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
-func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress) (*Session, error) {
+func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress, endSessionCommand []byte) (*Session, error) {
     session := &Session{
         trans: trans,
         raftServers: addrs,
         active: true,
         stopCh : make(chan bool, 1),
+        endSessionCommand: endSessionCommand,
     }
     var err error
     session.currConn, err = findActiveServerWithTrans(addrs, trans)
@@ -107,6 +109,7 @@ func (s *Session) SendRequest(data []byte, resp *ClientResponse) error {
             },
         },
         ClientAddr: s.trans.LocalAddr(),
+        EndSessionCommand: s.endSessionCommand,
         KeepSession: true,
     }
     return s.sendToActiveLeader(&req, resp)
@@ -143,6 +146,7 @@ func (s *Session) sessionKeepAliveLoop() {
           Entries: nil,
           ClientAddr: s.trans.LocalAddr(),
           KeepSession: true,
+          EndSessionCommand: s.endSessionCommand,
         }
         s.sendToActiveLeader(&heartbeat, &ClientResponse{})
     }

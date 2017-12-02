@@ -24,6 +24,7 @@ const NewGroupKey string = "new-group"
 const ClaimLocksCommand string = "add-lock"
 const RebalanceCommand string = "rebalance"
 const DisownLocksCommand string = "disown"
+const ReleaseForClientCommand string = "rel-client"
 
 /* Worker -> Master RPCs */
 const ReleasedRecalcitrantCommand string = "rel-recal"
@@ -31,7 +32,7 @@ const ReleasedRecalcitrantCommand string = "rel-recal"
 /* Master responses to RPCs */
 const TransferLockGroupCommand string = "transfer-group"
 const TransferRecalCommand string = "transfer-recal"
-
+const TriggerClientReleaseCommand string = "trigger-client-rel"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
