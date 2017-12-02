@@ -1379,7 +1379,6 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
                 r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
                 r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
                 r.leaderState.clientSessions[c.ClientAddr].endSessionCommand = c.EndSessionCommand
-                fmt.Println("***end session command: ", c.EndSessionCommand)
                 go r.clientSessionHeartbeatLoop(c.ClientAddr)
             }
             r.leaderState.clientSessions[c.ClientAddr].heartbeatCh <- true
@@ -1403,7 +1402,6 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
 
 func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error) {
     f := r.Apply(command, 0) //TODO: change to configurable value
-    fmt.Println("apply")
     if f.Error() != nil {
         r.logger.Printf("err: %v",f.Error())
         *rpcErr = f.Error()
