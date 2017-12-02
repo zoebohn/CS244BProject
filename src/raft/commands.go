@@ -159,6 +159,8 @@ type ClientRequest struct {
     KeepSession bool
     // ID of client to contact raft server. 
     ClientAddr ServerAddress
+    // Command to be executed when client session terminates.
+    EndSessionCommand []byte
 }
 
 // See WithRPCHeader.

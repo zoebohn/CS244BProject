@@ -76,8 +76,9 @@ type commitTuple struct {
 }
 
 type clientSession struct {
-    lastContact   time.Time
-    heartbeatCh   chan bool
+    lastContact         time.Time
+    heartbeatCh         chan bool
+    endSessionCommand   []byte
 }
 
 // leaderState is state that is used while we are a leader.
@@ -1377,6 +1378,8 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
             if !ok {
                 r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
                 r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
+                r.leaderState.clientSessions[c.ClientAddr].endSessionCommand = c.EndSessionCommand
+                fmt.Println("***end session command: ", c.EndSessionCommand)
                 go r.clientSessionHeartbeatLoop(c.ClientAddr)
             }
             r.leaderState.clientSessions[c.ClientAddr].heartbeatCh <- true
@@ -1400,6 +1403,7 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
 
 func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error) {
     f := r.Apply(command, 0) //TODO: change to configurable value
+    fmt.Println("apply")
     if f.Error() != nil {
         r.logger.Printf("err: %v",f.Error())
         *rpcErr = f.Error()
@@ -1430,6 +1434,8 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
             // TODO: do any notification for ending client session
             // But only affects state if drops connection to leader.
             r.logger.Printf("ending client session")
+            var err error
+            r.applyCommand(r.leaderState.clientSessions[clientAddr].endSessionCommand, &ClientResponse{}, &err)
             delete(r.leaderState.clientSessions, clientAddr)
             return
         }

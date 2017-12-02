@@ -33,7 +33,9 @@ func CreateLockClient(trans *raft.NetworkTransport, masterServers []raft.ServerA
 func (lc *LockClient) DestroyLockClient() error {
     /* Release any acquired locks. */
     /* Close client sessions. */
+    fmt.Println("destroy lock client")
     for _, s := range(lc.sessions) {
+        fmt.Println("session ", s)
         if err := s.CloseClientSession(); err != nil {
             return err
         }
@@ -277,7 +279,19 @@ func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) 
     if !ok {
         return nil, errors.New(ErrNoServersForId)
     }
-    new_session, err := raft.CreateClientSession(lc.trans, server_addrs)
+
+    args := make(map[string]string)
+    args[FunctionKey] = ReleaseForClientCommand
+    args[ClientAddrKey] = string(lc.trans.LocalAddr())
+    fmt.Println("args: ", args)
+    endSessionCommand, err := json.Marshal(args)
+    fmt.Println("command: ", endSessionCommand)
+    if err != nil {
+        return nil, err
+    }
+    fmt.Println("NEW SESSION")
+    new_session, err := raft.CreateClientSession(lc.trans, server_addrs, endSessionCommand)
+    lc.sessions[id] = new_session
     /* Return error if don't have server addresses for replica group ID. */
     return new_session, err
 }

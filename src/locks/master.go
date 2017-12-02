@@ -130,6 +130,10 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             l := Lock(args[LockArgKey])
             callback := m.singleRecalcitrantLockTransfer(ReplicaGroupId(oldGroup), ReplicaGroupId(newGroup), l)
             return nil, callback
+        case TriggerClientReleaseCommand:
+            c := raft.ServerAddress(args[ClientAddrKey])
+            m.triggerClientRelease(c)
+            return nil, nil
         }
 
     return nil, nil
@@ -568,4 +572,14 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    }
 
    return sendLockFunc
+}
+
+func (m *MasterFSM) triggerClientRelease(client raft.ServerAddress) {
+    fmt.Println("*****TRIGGER RELEASE*****")
+    for replicaGroup := range(m.clusterMap) {
+        args := make(map[string]string)
+        args[FunctionKey] = ReleaseForClientCommand
+        args[ClientAddrKey] = string(client)
+        m.genericClusterRequest(replicaGroup, args, &raft.ClientResponse{})
+    }
 }

@@ -18,7 +18,7 @@ func main() {
         fmt.Println("err: ", err)
         return
     }
-    lc, err := locks.CreateLockClient(trans, masterServers)
+    /*lc, err := locks.CreateLockClient(trans, masterServers)
     if err != nil {
         fmt.Println("error with creating lock client")
         fmt.Println(err)
@@ -38,7 +38,7 @@ func main() {
     output_test(test_creating_domains(lc),"create_domain")
     output_test(test_acquire_nonexistant_lock(lc), "nonexistant_lock")
     /* Second client */
-    trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+    /*trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
         fmt.Println("err: ", err)
         return
@@ -53,6 +53,7 @@ func main() {
     output_test(test_race_domain(lc, lc2), "race_domain")
     output_test(test_multiple_acquires_2(lc, lc2), "multiple_acquire")
     output_test(test_release_unacquired_2(lc, lc2), "release_unacquired")
+    */output_test(test_client_fails_and_releases(trans), "client_fails_and_releases")
     fmt.Println("************* NUMBER OF TESTS FAILED: ", numTestsFailed, " *****************")
 }
 
@@ -417,4 +418,47 @@ func test_release_unacquired_2(lc1 *locks.LockClient, lc2 *locks.LockClient) boo
     }
     return success
 
+}
+
+func test_client_fails_and_releases(trans *raft.NetworkTransport) bool {
+    success := true
+    lc, err := locks.CreateLockClient(trans, masterServers)
+    if err != nil {
+        success = false
+        fmt.Println("error with creating lock client")
+        fmt.Println(err)
+    }
+    lock := locks.Lock("client_fail_lock")
+    create_err := lc.CreateLock(lock)
+    if create_err != nil {
+        success = false
+        fmt.Println("error with creating")
+        fmt.Println(create_err)
+    }
+    id1, acquire1_err := lc.AcquireLock(lock)
+    if id1 == -1 || acquire1_err != nil {
+        fmt.Println("error with acquiring")
+        fmt.Println(acquire1_err)
+        success = false
+    }
+    destroy_err := lc.DestroyLockClient()
+    if destroy_err != nil {
+        success = false
+        fmt.Println("error with destroying")
+        fmt.Println(destroy_err)
+    }
+    time.Sleep(10*time.Second)
+    newlc, err := locks.CreateLockClient(trans, masterServers)
+    if err != nil {
+        success = false
+        fmt.Println("error with creating lock client")
+        fmt.Println(err)
+    }
+    id2, acquire2_err := newlc.AcquireLock(lock)
+    if id2 == -1 || acquire2_err != nil {
+        fmt.Println("error with acquiring")
+        fmt.Println(acquire2_err)
+        success = false
+    }
+    return success
 }
