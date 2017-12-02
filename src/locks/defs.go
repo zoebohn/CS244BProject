@@ -10,10 +10,12 @@ const AcquireLockCommand string = "AcquireLock"
 const ReleaseLockCommand string = "RelaseLock" 
 const CreateDomainCommand string = "CreateDomainLock" 
 const LocateLockCommand string = "LocateLock" 
+const ValidateLockCommand string = "ValidateLock"
 const ReleaseForClientCommand string = "rel-client"
 const FunctionKey string = "function"
 const LockArgKey string = "lock"
 const DomainArgKey string = "domain"
+const SequencerArgKey string = "seq"
 const ClientAddrKey string = "client-addr"
 const LockArrayKey string = "lock-arr"
 const LockArray2Key string = "lock-arr2"
@@ -73,6 +75,11 @@ type RebalanceResponse struct {
     RecalcitrantLocks map[Lock]int
 }
 
+type ValidateLockResponse struct {
+    Success bool
+    ErrMessage string
+}
+
 /* TODO: define errors. */
 var(
     ErrLockExists = "lock already exists"
@@ -87,4 +94,5 @@ var(
     ErrBadClientRelease = "lock was not acquired by client trying to release it"
     ErrNoServersForId = "can't find servers associated with replica id"
     ErrCannotLocateLock = "cannot locate lock"
+    ErrInvalidRequest = "request not formatted correctly"
 )

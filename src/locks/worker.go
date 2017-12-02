@@ -6,18 +6,19 @@ import(
     "io"
     "encoding/json"
     "bytes"
+    "strconv"
 )
 
 type WorkerFSM struct{
     /* Map of lock to lock state. */
     lockStateMap    map[Lock]lockState
-    sequencer       Sequencer
+    sequencerMap    map[Lock]Sequencer
     masterCluster   []raft.ServerAddress
 }
 
 type WorkerSnapshot struct {
     LockStateMap map[Lock]lockState
-    SequencerInt int
+    SequencerMap map[Lock]Sequencer
     MasterCluster []raft.ServerAddress
 }
 
@@ -37,7 +38,7 @@ func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     for i := range(workers) {
         workers[i] = &WorkerFSM {
             lockStateMap: make(map[Lock]lockState),
-            sequencer: 0,
+            sequencerMap: make(map[Lock]Sequencer),
             masterCluster: masterCluster,
         }
     }
@@ -74,6 +75,15 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             clientAddr := raft.ServerAddress(args[ClientAddrKey])
             response, callback := w.releaseLock(l, clientAddr)
             return response, callback
+        case ValidateLockCommand:
+            l := Lock(args[LockArgKey])
+            s, err := strconv.Atoi(args[SequencerArgKey])
+            if err != nil {
+                fmt.Println("WORKER: error unpacking command")
+                return ValidateLockResponse{false, ErrInvalidRequest}, nil
+            }
+            response := w.validateLock(l, Sequencer(s))
+            return response, nil
         case RebalanceCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             response := w.handleRebalanceRequest(lock_arr)
@@ -98,7 +108,7 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
         return err
     }
     w.lockStateMap = snapshotRestored.LockStateMap
-    w.sequencer = Sequencer(snapshotRestored.SequencerInt)
+    w.sequencerMap = snapshotRestored.SequencerMap
     w.masterCluster = snapshotRestored.MasterCluster
     return nil
 }
@@ -106,7 +116,7 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
     /* TODO need to lock fsm? */
-    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerInt: int(w.sequencer), MasterCluster: w.masterCluster}
+    s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerMap: w.sequencerMap, MasterCluster: w.masterCluster}
     return s, nil
 }
 
@@ -161,8 +171,8 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      state.Held = true
      state.Client = client
      w.lockStateMap[l] = state
-     w.sequencer += 1
-     return AcquireLockResponse{w.sequencer, ""}
+     w.sequencerMap[l] += 1
+     return AcquireLockResponse{w.sequencerMap[l], ""}
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
@@ -195,10 +205,22 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     return ReleaseLockResponse{""}, nil
 }
 
+func (w *WorkerFSM) validateLock(l Lock, s Sequencer) ValidateLockResponse {
+    if _, ok := w.lockStateMap[l]; !ok {
+        return ValidateLockResponse{false, ErrLockDoesntExist}
+    }
+    if s == w.sequencerMap[l] {
+        return ValidateLockResponse{true, ""}
+    } else {
+        return ValidateLockResponse{false, ""}
+    }
+}
+
 func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
     for _, l := range lock_arr {
         fmt.Println("WORKER: claiming lock ", string(l))
         w.lockStateMap[l] = lockState{Held: false, Client: "", Recalcitrant: false, }
+        w.sequencerMap[l] = 0
     }
 }
 

@@ -5,6 +5,7 @@ import (
     "fmt"
     "errors"
     "encoding/json"
+    "strconv"
 )
 
 type LockClient struct {
@@ -202,6 +203,47 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
         return errors.New(response.ErrMessage)
     }
     return nil
+}
+
+func (lc *LockClient) ValidateLock(l Lock, s Sequencer) (bool, error) {
+    args := make(map[string]string)
+    args[FunctionKey] = ValidateLockCommand 
+    args[LockArgKey] = string(l)
+    args[SequencerArgKey] = string(strconv.Itoa(int(s)))
+    data, err := json.Marshal(args)
+    if err != nil {
+        return false, err
+    }
+    replicaID, ok := lc.locks[l]
+    if !ok {
+        fmt.Println("LOCK-CLIENT: must locate lock ", string(l))
+        new_id, lookup_err := lc.askMasterToLocate(l)
+        replicaID = new_id
+        if lookup_err != nil {
+            fmt.Println("LOCK-CLIENT: error with lookup for ", string(l))
+        } else {
+            lc.locks[l] = replicaID
+        }
+    }
+    session, session_err := lc.getSessionForId(replicaID)
+    if session_err != nil {
+        return false, session_err
+    }
+    resp := raft.ClientResponse{}
+    send_err := session.SendRequest(data, &resp)
+    if send_err != nil {
+        return false, send_err
+    }
+    var response ValidateLockResponse
+    unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
+    if unmarshal_err != nil {
+        fmt.Println("LOCK-CLIENT: error unmarshalling release")
+        fmt.Println(unmarshal_err)
+    }
+    if response.ErrMessage != "" {
+        return false, errors.New(response.ErrMessage)
+    }
+    return response.Success, nil
 }
 
 func (lc *LockClient) CreateDomain(d Domain) (error) {
