@@ -78,7 +78,7 @@ func smallLockClient(printLock *sync.Mutex) {
     fmt.Println("END: ", end)
     fmt.Println("DURATION (sec): ", (end.Sub(start).Seconds()))
     fmt.Println("NUM OPS: ", numOps)
-    fmt.Println("THROUGHPUT (ops/sec): ", (end.Sub(start).Seconds())/float64(numOps))
+    fmt.Println("THROUGHPUT (ops/sec): ", float64(numOps) / (end.Sub(start).Seconds()))
     printLock.Unlock()
 }
 
