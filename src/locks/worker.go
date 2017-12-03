@@ -222,6 +222,7 @@ func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
         w.lockStateMap[l] = lockState{Held: false, Client: "", Recalcitrant: false, }
         w.sequencerMap[l] = 0
     }
+    fmt.Println("--> CLAIM WORKER LOCK MAP: ", w.lockStateMap)
 }
 
 func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
@@ -229,6 +230,7 @@ func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
         fmt.Println("WORKER: disowning lock ", string(l))
         delete(w.lockStateMap, l)
     }
+    fmt.Println("--> DISOWN WORKER LOCK MAP: ", w.lockStateMap)
 }
 
 
