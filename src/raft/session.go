@@ -174,7 +174,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
                 return errors.New("Failed to find active leader.")
             }
             s.currConn, err = findActiveServerWithTrans(s.raftServers, s.trans)
-            if err != nil {
+            if err != nil || s.currConn == nil {
                 s.active = false
                 return errors.New("No active server found.")
             }
@@ -222,7 +222,7 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
                 return errors.New("Failed to find active leader.")
             }
             conn, err = findActiveServerWithoutTrans(addrs)
-            if err != nil {
+            if err != nil || conn == nil {
                 if conn != nil {
                     conn.conn.Close()
                 }

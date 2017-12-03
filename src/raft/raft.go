@@ -9,6 +9,7 @@ import (
 	"time"
     "encoding/json"
 	"github.com/armon/go-metrics"
+    "sync"
 )
 
 const (
@@ -90,6 +91,7 @@ type leaderState struct {
 	notify     map[*verifyFuture]struct{}
 	stepDown   chan struct{}
     clientSessions  map[ServerAddress]*clientSession
+    clientSessionsLock  sync.RWMutex
 }
 
 // setLeader is used to modify the current leader of the cluster
@@ -1373,15 +1375,22 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     if (r.getState() == Leader) {
         // Maintain sessions
         if (c.KeepSession) {
+            r.leaderState.clientSessionsLock.RLock()
             _, ok := r.leaderState.clientSessions[c.ClientAddr]
+            r.leaderState.clientSessionsLock.RUnlock()
             // If first session, start heartbeat loop.
             if !ok {
+                r.leaderState.clientSessionsLock.Lock()
                 r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
                 r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
                 r.leaderState.clientSessions[c.ClientAddr].endSessionCommand = c.EndSessionCommand
+                r.leaderState.clientSessionsLock.Unlock()
                 go r.clientSessionHeartbeatLoop(c.ClientAddr)
             }
-            r.leaderState.clientSessions[c.ClientAddr].heartbeatCh <- true
+            r.leaderState.clientSessionsLock.RLock()
+            ch := r.leaderState.clientSessions[c.ClientAddr].heartbeatCh
+            r.leaderState.clientSessionsLock.RUnlock()
+            ch <- true
         }
         // Put in applyCh
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
@@ -1425,17 +1434,27 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
 }
 
 func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
+    r.leaderState.clientSessionsLock.RLock()
+    ch := r.leaderState.clientSessions[clientAddr].heartbeatCh
+    r.leaderState.clientSessionsLock.RUnlock()
     for {
         select {
-        case <- r.leaderState.clientSessions[clientAddr].heartbeatCh:
+        case <- ch:
+            r.leaderState.clientSessionsLock.Lock()
             r.leaderState.clientSessions[clientAddr].lastContact = time.Now()
+            r.leaderState.clientSessionsLock.Unlock()
         case <- time.After(5*time.Second):
             // TODO: do any notification for ending client session
             // But only affects state if drops connection to leader.
             r.logger.Printf("ending client session")
             var err error
-            r.applyCommand(r.leaderState.clientSessions[clientAddr].endSessionCommand, &ClientResponse{}, &err)
+            r.leaderState.clientSessionsLock.RLock()
+            command := r.leaderState.clientSessions[clientAddr].endSessionCommand
+            r.leaderState.clientSessionsLock.RUnlock()
+            r.applyCommand(command, &ClientResponse{}, &err)
+            r.leaderState.clientSessionsLock.Lock()
             delete(r.leaderState.clientSessions, clientAddr)
+            r.leaderState.clientSessionsLock.Unlock()
             return
         }
     }

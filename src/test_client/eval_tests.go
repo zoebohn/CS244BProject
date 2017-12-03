@@ -7,6 +7,7 @@ import(
     "os"
     "os/signal"
     "time"
+    "sync"
 )
 
 const NUM_SMALL_LOCK_CLIENTS = 5 
@@ -18,9 +19,10 @@ var smallLocks = []locks.Lock{locks.Lock("0"), locks.Lock("1"), locks.Lock("2"),
 func main() {
     smallLockCreateLocks()
     counter := 0
+    printLock := sync.Mutex{}
     for counter < NUM_SMALL_LOCK_CLIENTS {
         //time.Sleep(time.Second)
-        go smallLockClient()
+        go smallLockClient(&printLock)
         counter++
     }
     c := make(chan os.Signal, 1)
@@ -52,7 +54,7 @@ func smallLockCreateLocks() {
 }
 
 
-func smallLockClient() {
+func smallLockClient(printLock *sync.Mutex) {
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
@@ -71,11 +73,13 @@ func smallLockClient() {
     go ops_loop(smallLocks, &numOps, lc, c2)
     <-c1
     end := time.Now()
+    printLock.Lock()
     fmt.Println("START: ", start)
     fmt.Println("END: ", end)
     fmt.Println("DURATION (sec): ", (end.Sub(start).Seconds()))
     fmt.Println("NUM OPS: ", numOps)
     fmt.Println("THROUGHPUT (ops/sec): ", (end.Sub(start).Seconds())/float64(numOps))
+    printLock.Unlock()
 }
 
 func ops_loop(locks []locks.Lock, numOps *int, lc *locks.LockClient, c chan os.Signal) {
