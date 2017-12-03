@@ -189,7 +189,7 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
     }
     resp := raft.ClientResponse{}
     send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return send_err
     }
     /* Contact master to create lock entry (master then contacts replica group). */
@@ -233,7 +233,7 @@ func (lc *LockClient) ValidateLock(l Lock, s Sequencer) (bool, error) {
     }
     resp := raft.ClientResponse{}
     send_err := session.SendRequest(data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return false, send_err
     }
     var response ValidateLockResponse
@@ -258,7 +258,7 @@ func (lc *LockClient) CreateDomain(d Domain) (error) {
     }
     resp := raft.ClientResponse{}
     send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return send_err
     }
     /* Contact master to create domain (master then contacts replica group). */
@@ -288,7 +288,7 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
     }
     resp := raft.ClientResponse{}
     send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return -1, send_err
     }
     /* Ask master for location of lock, return replica group ID. */
