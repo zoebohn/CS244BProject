@@ -36,7 +36,7 @@ var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:600
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const REBALANCE_THRESHOLD = 12 // was 4 
+const REBALANCE_THRESHOLD = 4 // was 4 
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
@@ -273,6 +273,7 @@ func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
        Check lockMap to find replica group ID. 
        Return replica groupID and servers using clusterMap. */
     replicaGroup, ok := m.lockMap[l]
+    fmt.Println("LOCK MAP: ", m.lockMap)
     if !ok {
         return LocateLockResponse{-1, nil, ErrLockDoesntExist}
     }

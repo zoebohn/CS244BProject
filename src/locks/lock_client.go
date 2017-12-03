@@ -76,7 +76,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     }
     resp := raft.ClientResponse{}
     send_err := session.SendRequest(data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return -1, send_err    
     }
     /* Parse name to get domain. */
@@ -87,8 +87,9 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
         fmt.Println(resp.ResponseData)
+        fmt.Println("response: ", resp)
         fmt.Println(response)
-        fmt.Println("LOCK-CLIENT: error unmarshalling acquire")
+        fmt.Println("LOCK-CLIENT: error unmarshalling acquire for ", l)
         //TODO
         fmt.Println(unmarshal_err)
     }
@@ -112,7 +113,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
             }
             resp := raft.ClientResponse{}
             send_err := session.SendRequest(data, &resp)
-            if send_err != nil {
+            if send_err != nil || !resp.Success {
                 return -1, send_err    
             }
             unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
@@ -153,7 +154,7 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     }
     resp := raft.ClientResponse{}
     send_err := session.SendRequest(data, &resp)
-    if send_err != nil {
+    if send_err != nil || !resp.Success {
         return send_err
     }
     /* Parse name to get domain. */
@@ -164,8 +165,9 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
         fmt.Println(resp.ResponseData)
+        fmt.Println(resp)
         fmt.Println(response)
-        fmt.Println("LOCK-CLIENT: error unmarshalling release")
+        fmt.Println("LOCK-CLIENT: error unmarshalling release for ", l)
         //TODO
         fmt.Println(unmarshal_err)
     }

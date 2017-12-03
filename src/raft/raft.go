@@ -1415,9 +1415,10 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
     }
     data, json_err := json.Marshal(f.Response())
     if json_err != nil {
-        //TODO
+       // Check 
     }
     resp.ResponseData = data
+    resp.Success = true
     if nextCommand != nil {
         r.applyCommand(nextCommand, resp, rpcErr)
     }

@@ -9,7 +9,7 @@ import(
     "time"
 )
 
-const NUM_SMALL_LOCK_CLIENTS =5 
+const NUM_SMALL_LOCK_CLIENTS = 5 
 
  var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
 
@@ -73,7 +73,7 @@ func smallLockClient() {
     end := time.Now()
     fmt.Println("START: ", start)
     fmt.Println("END: ", end)
-    fmt.Println("DURECTION (sec): ", (end.Sub(start).Seconds()))
+    fmt.Println("DURATION (sec): ", (end.Sub(start).Seconds()))
     fmt.Println("NUM OPS: ", numOps)
     fmt.Println("THROUGHPUT (ops/sec): ", (end.Sub(start).Seconds())/float64(numOps))
 }
@@ -86,9 +86,16 @@ func ops_loop(locks []locks.Lock, numOps *int, lc *locks.LockClient, c chan os.S
                 fmt.Println("done")
                 return
             default:
-                lc.AcquireLock(l)
-                lc.ReleaseLock(l)
-                *numOps += 2
+                seq,acq_err := lc.AcquireLock(l)
+                if acq_err == nil {
+                    *numOps++
+                }
+                if seq >= 0 {
+                    rel_err := lc.ReleaseLock(l)
+                    if rel_err == nil {
+                        *numOps++
+                    }
+                }
             }
         }
     }

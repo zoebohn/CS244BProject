@@ -198,7 +198,7 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
 }
 
 func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientRequest, response *ClientResponse) error {
-    retries := 5
+    retries := 5 
     conn, err := findActiveServerWithoutTrans(addrs)
     if err != nil {
         return errors.New("No active serve found.")
