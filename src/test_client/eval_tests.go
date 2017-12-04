@@ -10,19 +10,19 @@ import(
     "sync"
 )
 
-const NUM_SMALL_LOCK_CLIENTS = 5 
+const NUM_SMALL_LOCK_CLIENTS = 3
 
  var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
 
-var smallLocks = []locks.Lock{locks.Lock("0"), locks.Lock("1"), locks.Lock("2"), locks.Lock("3"), locks.Lock("4"), locks.Lock("5"), locks.Lock("6"), locks.Lock("7"), locks.Lock("8"), locks.Lock("9")}
+var smallLocks = [][]locks.Lock{{locks.Lock("0"), locks.Lock("1"), locks.Lock("2")}, {locks.Lock("3"), locks.Lock("4"), locks.Lock("5")}, {locks.Lock("6"), locks.Lock("7"), locks.Lock("8")}}
 
 func main() {
-    smallLockCreateLocks()
+    smallLockCreateLocks(smallLocks)
     counter := 0
     printLock := sync.Mutex{}
     for counter < NUM_SMALL_LOCK_CLIENTS {
         //time.Sleep(time.Second)
-        go smallLockClient(&printLock)
+        go smallLockClient(smallLocks[counter], &printLock)
         counter++
     }
     c := make(chan os.Signal, 1)
@@ -31,7 +31,7 @@ func main() {
     time.Sleep(time.Second)
 }
 
-func smallLockCreateLocks() {
+func smallLockCreateLocks(lockList [][]locks.Lock) {
    trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
@@ -41,10 +41,12 @@ func smallLockCreateLocks() {
     if lc_err != nil {
         fmt.Println("err: ", lc_err)
     }
-    for _,l := range smallLocks {
-        create_err := lc.CreateLock(l)
-        if create_err != nil {
-            fmt.Println("err: ", create_err)
+    for _,list := range lockList {
+        for _, l := range list {
+            create_err := lc.CreateLock(l)
+            if create_err != nil {
+                fmt.Println("err: ", create_err)
+            }
         }
     }
     destroy_err := lc.DestroyLockClient()
@@ -54,7 +56,7 @@ func smallLockCreateLocks() {
 }
 
 
-func smallLockClient(printLock *sync.Mutex) {
+func smallLockClient(lockList []locks.Lock, printLock *sync.Mutex) {
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
@@ -70,7 +72,7 @@ func smallLockClient(printLock *sync.Mutex) {
     c2 := make(chan os.Signal, 1)
     signal.Notify(c1, os.Interrupt)
     signal.Notify(c2, os.Interrupt)
-    go ops_loop(smallLocks, &numOps, lc, c2)
+    go ops_loop(lockList, &numOps, lc, c2)
     <-c1
     end := time.Now()
     printLock.Lock()

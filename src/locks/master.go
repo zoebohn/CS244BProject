@@ -36,7 +36,8 @@ var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:600
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const REBALANCE_THRESHOLD = 4 // was 4 
+const REBALANCE_THRESHOLD = 7 // was 4 
+const RECRUIT_CLUSTER_LOCALLY = false
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
@@ -313,20 +314,11 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
-func (m *MasterFSM) recruitCluster() (ReplicaGroupId, error) {
-    workerAddrs := recruitAddrs[m.nextReplicaGroupId]
-    /* TODO problem, we only want to create the cluster once*/
-    MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
-    id := m.nextReplicaGroupId //TODO race condition?
-    m.clusterMap[m.nextReplicaGroupId] = workerAddrs
-    m.numLocksHeld[m.nextReplicaGroupId] = 0
-    m.nextReplicaGroupId++
-    return id, nil
-}
-
 func recruitInitialCluster(masters []*MasterFSM) (error) {
     workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
-    MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].masterCluster), workerAddrs)
+    if RECRUIT_CLUSTER_LOCALLY {
+        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].masterCluster), workerAddrs)
+    }
     id := masters[0].nextReplicaGroupId //TODO race condition?
     for i := range(masters) {
         masters[i].clusterMap[masters[i].nextReplicaGroupId] = workerAddrs
@@ -363,7 +355,9 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
         }
 
         /* Recruit new replica group to store rebalanced locks. */
-        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
+        if (RECRUIT_CLUSTER_LOCALLY) {
+            MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.masterCluster), workerAddrs)
+        }
 
         /* Using set of recalcitrant locks, determine locks that can be moved. */
         locksCanMove := make([]Lock, 0)
