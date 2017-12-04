@@ -7,58 +7,36 @@ import(
     "os"
     "os/signal"
     "time"
-    "sync"
     "strconv"
+    "eval"
 )
 
  var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
 
-var smallLocks = [][]locks.Lock{{locks.Lock("0"), locks.Lock("1"), locks.Lock("2")}, {locks.Lock("3"), locks.Lock("4"), locks.Lock("5")}, {locks.Lock("6"), locks.Lock("7"), locks.Lock("8")}}
-
 func main() {
     args := os.Args[1:]
-    if len(args) != 1 {
-        fmt.Println("Need 1 argument, test number")
+    if len(args) != 4 {
+        fmt.Println("Need 4 arguments, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1)")
         return
     }
-    testNum,err := strconv.Atoi(args[0])
-    if err != nil {
-        fmt.Println("err with arg: ", err)
+    clientNum, err1 := strconv.Atoi(args[0])
+    numLocksPerClient, err2 := strconv.Atoi(args[1])
+    totalClients, err3 := strconv.Atoi(args[2])
+    diffDomainsNum, err4 := strconv.Atoi(args[3])
+    if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+        fmt.Println("Arguments not valid numbers")
         return
     }
-    var lockList [][]locks.Lock
-    if testNum == 0 {
-        lockList = smallLocks
-    }
-    createLocks(lockList)
+    diffDomains := diffDomainsNum != 0
+    lockList := eval.GenerateLockList(numLocksPerClient, totalClients, diffDomains)
+    go runLockClient(lockList[clientNum])
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt)
+    <-c
+    time.Sleep(time.Second)
 }
 
-func createLocks(lockList [][]locks.Lock) {
-   trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
-    if err != nil {
-        fmt.Println("err: ", err)
-        return
-    }
-    lc, lc_err := locks.CreateLockClient(trans, masterServers)
-    if lc_err != nil {
-        fmt.Println("err: ", lc_err)
-    }
-    for _,list := range lockList {
-        for _, l := range list {
-            create_err := lc.CreateLock(l)
-            if create_err != nil {
-                fmt.Println("err: ", create_err)
-            }
-        }
-    }
-    destroy_err := lc.DestroyLockClient()
-    if destroy_err != nil {
-        fmt.Println("err: ", destroy_err)
-    }
-}
-
-
-func smallLockClient(lockList []locks.Lock, printLock *sync.Mutex) {
+func runLockClient(lockList []locks.Lock) {
     trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
@@ -77,13 +55,11 @@ func smallLockClient(lockList []locks.Lock, printLock *sync.Mutex) {
     go ops_loop(lockList, &numOps, lc, c2)
     <-c1
     end := time.Now()
-    printLock.Lock()
     fmt.Println("START: ", start)
     fmt.Println("END: ", end)
     fmt.Println("DURATION (sec): ", (end.Sub(start).Seconds()))
     fmt.Println("NUM OPS: ", numOps)
     fmt.Println("THROUGHPUT (ops/sec): ", float64(numOps) / (end.Sub(start).Seconds()))
-    printLock.Unlock()
 }
 
 func ops_loop(locks []locks.Lock, numOps *int, lc *locks.LockClient, c chan os.Signal) {
@@ -91,7 +67,6 @@ func ops_loop(locks []locks.Lock, numOps *int, lc *locks.LockClient, c chan os.S
         for _,l := range locks {
             select {
             case <-c:
-                fmt.Println("done")
                 return
             default:
                 seq,acq_err := lc.AcquireLock(l)
