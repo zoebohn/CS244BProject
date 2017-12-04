@@ -218,7 +218,9 @@ func sendSingletonRpcToActiveLeader(addrs []ServerAddress, request *ClientReques
         for err != nil {
             fmt.Println("*******error sending: ", err)
             if retries <= 0 {
-                conn.conn.Close()
+                if conn != nil {
+                    conn.conn.Close()
+                }
                 return errors.New("Failed to find active leader.")
             }
             conn, err = findActiveServerWithoutTrans(addrs)
@@ -264,14 +266,17 @@ func findActiveServerWithoutTrans(addrs []ServerAddress) (*netConn, error) {
         if err == nil {
             return conn, nil
         }
-        conn.conn.Close()
+        if conn != nil {
+            conn.conn.Close()
+        }
     }
     return nil, errors.New("No active raft servers.")
 }
 
 func buildNetConn(target ServerAddress) (*netConn, error) {
     // Dial a new connection
-	conn, err := net.Dial("tcp", string(target))
+    fmt.Println("TRYING TO DIAL: ", target)
+    conn, err := net.Dial("tcp", string(target))
 	if err != nil {
 		return nil, err
 	}
