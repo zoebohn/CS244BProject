@@ -24,6 +24,10 @@ type MasterFSM struct {
     nextReplicaGroupId  ReplicaGroupId
     /* Location of servers in master cluster. */
     masterCluster       []raft.ServerAddress
+    /* Address of worker clusters to recruit. */
+    recruitAddrs        [][]raft.ServerAddress
+    /* Threshold at which to rebalance. */
+    rebalanceThreshold  int
     /* Eventual destinations of recalcitrant locks. */
     recalcitrantDestMap map[Lock]ReplicaGroupId
     /* Rebalances in progress */
@@ -32,11 +36,11 @@ type MasterFSM struct {
 
 
 /* Constants for recruiting new clusters. */
-var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}, {"127.0.0.1:6006", "127.0.0.1:6007", "127.0.0.1:6008", "127.0.0.1:6009"}, {"127.0.0.1:6010", "127.0.0.1:6011", "127.0.0.1:6012"}, {"127.0.0.1:6013", "127.0.0.1:6014", "127.0.0.1:6015"}, {"127.0.0.1:6016", "127.0.0.1:6017", "127.0.0.1:6018"}, {"127.0.0.1:6019", "127.0.0.1:6020", "127.0.0.1:6021"}}
+//var recruitAddrs [][]raft.ServerAddress = [][]raft.ServerAddress{{"127.0.0.1:6000", "127.0.0.1:6001", "127.0.0.1:6002"}, {"127.0.0.1:6003", "127.0.0.1:6004", "127.0.0.1:6005"}, {"127.0.0.1:6006", "127.0.0.1:6007", "127.0.0.1:6008", "127.0.0.1:6009"}, {"127.0.0.1:6010", "127.0.0.1:6011", "127.0.0.1:6012"}, {"127.0.0.1:6013", "127.0.0.1:6014", "127.0.0.1:6015"}, {"127.0.0.1:6016", "127.0.0.1:6017", "127.0.0.1:6018"}, {"127.0.0.1:6019", "127.0.0.1:6020", "127.0.0.1:6021"}}
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const REBALANCE_THRESHOLD = 7 // was 4 
+//const REBALANCE_THRESHOLD = 7 // was 4 
 const RECRUIT_CLUSTER_LOCALLY = false
 
 /* TODO: what do we need to do here? */
@@ -47,11 +51,13 @@ type MasterSnapshot struct{
     NumLocksHeld        map[ReplicaGroupId]int
     NextReplicaGroupId  ReplicaGroupId
     MasterCluster       []raft.ServerAddress
+    RecruitAddrs        [][]raft.ServerAddress
+    RebalanceThreshold  int
     RecalcitrantDestMap map[Lock]ReplicaGroupId
     RebalancingInProgress map[ReplicaGroupId]bool
 }
 
-func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, rebalanceThreshold int) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -61,6 +67,8 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
             numLocksHeld:       make(map[ReplicaGroupId]int),
             nextReplicaGroupId: 0,
             masterCluster:      clusterAddrs,
+            recruitAddrs:       recruitList,
+            rebalanceThreshold: rebalanceThreshold,
             recalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             rebalancingInProgress: make(map[ReplicaGroupId]bool),
         }
@@ -68,7 +76,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress) ([]raft.FSM) {
     if n <= 0 {
         fmt.Println("MASTER: Cannot have number of masters <= 0")
     }
-    err := recruitInitialCluster(masters)
+    err := recruitInitialCluster(masters, recruitList[0])
     if err != nil {
         //TODO
         fmt.Println(err)
@@ -141,7 +149,7 @@ func (m *MasterFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* TODO need to lock fsm? */
     s := MasterSnapshot{LockMap: m.lockMap, ClusterMap: m.clusterMap,
          DomainPlacementMap: m.domainPlacementMap, NumLocksHeld: m.numLocksHeld,
-         NextReplicaGroupId: m.nextReplicaGroupId, RecalcitrantDestMap: m.recalcitrantDestMap}
+         NextReplicaGroupId: m.nextReplicaGroupId, MasterCluster: m.masterCluster, RecruitAddrs: m.recruitAddrs, RebalanceThreshold: m.rebalanceThreshold, RecalcitrantDestMap: m.recalcitrantDestMap}
     return s, nil
 }
 
@@ -160,6 +168,9 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.domainPlacementMap = snapshotRestored.DomainPlacementMap
     m.numLocksHeld = snapshotRestored.NumLocksHeld
     m.nextReplicaGroupId = snapshotRestored.NextReplicaGroupId
+    m.masterCluster = snapshotRestored.MasterCluster
+    m.recruitAddrs = snapshotRestored.RecruitAddrs
+    m.rebalanceThreshold = snapshotRestored.RebalanceThreshold
     m.recalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
 
     return nil
@@ -226,7 +237,7 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     m.lockMap[l] = replicaGroup
     
     var rebalanceCallback func() []byte
-    if m.numLocksHeld[replicaGroup] >= REBALANCE_THRESHOLD {
+    if m.numLocksHeld[replicaGroup] >= m.rebalanceThreshold {
         if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
             rebalanceCallback = m.rebalance(replicaGroup)
         }
@@ -314,8 +325,7 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
-func recruitInitialCluster(masters []*MasterFSM) (error) {
-    workerAddrs := recruitAddrs[masters[0].nextReplicaGroupId]
+func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddress) (error) {
     if RECRUIT_CLUSTER_LOCALLY {
         MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].masterCluster), workerAddrs)
     }
@@ -337,9 +347,9 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     locksToMove := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
     fmt.Println("next replica group ID: ", m.nextReplicaGroupId)
-    workerAddrs := recruitAddrs[m.nextReplicaGroupId]
+    workerAddrs := m.recruitAddrs[m.nextReplicaGroupId]
     newReplicaGroup := m.nextReplicaGroupId
-    m.clusterMap[newReplicaGroup] = recruitAddrs[m.nextReplicaGroupId] 
+    m.clusterMap[newReplicaGroup] = workerAddrs
     m.numLocksHeld[newReplicaGroup] = 0
     m.nextReplicaGroupId++
     m.rebalancingInProgress[replicaGroup] = true
@@ -531,7 +541,7 @@ func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
 
     splitLocks := make([]Lock, 0)
     for i := range(locks) {
-        if i >= REBALANCE_THRESHOLD / 2 {
+        if i >= m.rebalanceThreshold / 2 {
             return splitLocks
         }
         splitLocks = append(splitLocks, Lock(locks[i]))

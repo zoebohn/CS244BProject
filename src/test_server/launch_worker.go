@@ -2,25 +2,24 @@ package main
 
 import(
     "locks"
-	"raft"
 	"os"
     "os/signal"
     "fmt"
+    "eval"
 )
 
 func main() {
-    workerStrings := os.Args[1:]
-    fmt.Println("Launching worker cluster at ", workerStrings)
-    if len(workerStrings) != 3 {
-        fmt.Println("Need 3 worker addrs")
+    args := os.Args[1:]
+    if len(args) != 2 {
+        fmt.Println("Need master IP addr and worker IP addr")
         return
     }
-    workerAddrs := make([]raft.ServerAddress, 0)
-    for _, w := range workerStrings {
-        workerAddrs = append(workerAddrs, raft.ServerAddress(w))
-    }
-    addrs := []raft.ServerAddress{"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
-    locks.MakeCluster(3, locks.CreateWorkers(len(workerAddrs), addrs), workerAddrs)
+    masterIP := args[0]
+    workerIP := args[1]
+    workerAddrs := eval.GenerateWorkerServerList(workerIP)
+    fmt.Println("Launching worker cluster at ", workerAddrs)
+    masterAddrs := eval.GenerateMasterServerList(masterIP)
+    locks.MakeCluster(3, locks.CreateWorkers(len(workerAddrs), masterAddrs), workerAddrs)
     c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c

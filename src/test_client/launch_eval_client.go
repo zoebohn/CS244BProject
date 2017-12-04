@@ -11,38 +11,40 @@ import(
     "eval"
 )
 
-var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
-
 func main() {
     args := os.Args[1:]
-    if len(args) != 4 {
-        fmt.Println("Need 4 arguments, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1)")
+    if len(args) != 6 {
+        fmt.Println("Need 6 arguments, client IP addr, master IP addr, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1)")
         return
     }
-    clientNum, err1 := strconv.Atoi(args[0])
-    numLocksPerClient, err2 := strconv.Atoi(args[1])
-    totalClients, err3 := strconv.Atoi(args[2])
-    diffDomainsNum, err4 := strconv.Atoi(args[3])
+    clientIP := args[0]
+    masterIP := args[1]
+    clientNum, err1 := strconv.Atoi(args[2])
+    numLocksPerClient, err2 := strconv.Atoi(args[3])
+    totalClients, err3 := strconv.Atoi(args[4])
+    diffDomainsNum, err4 := strconv.Atoi(args[5])
     if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
         fmt.Println("Arguments not valid numbers")
         return
     }
     diffDomains := diffDomainsNum != 0
+    clientAddr := raft.ServerAddress(clientIP + ":0")
+    masterAddrs := eval.GenerateMasterServerList(masterIP)
     lockList := eval.GenerateLockList(numLocksPerClient, totalClients, diffDomains)
-    go runLockClient(lockList[clientNum])
+    go runLockClient(lockList[clientNum], clientAddr, masterAddrs)
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt)
     <-c
     time.Sleep(time.Second)
 }
 
-func runLockClient(lockList []locks.Lock) {
-    trans, err := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
+func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterAddrs []raft.ServerAddress) {
+    trans, err := raft.NewTCPTransport(string(clientAddr), nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
         return
     }
-    lc, lc_err := locks.CreateLockClient(trans, masterServers)
+    lc, lc_err := locks.CreateLockClient(trans, masterAddrs)
     if lc_err != nil {
         fmt.Println("err: ", lc_err)
     }
