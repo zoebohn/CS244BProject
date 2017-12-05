@@ -245,18 +245,13 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     var rebalanceCallback func() []byte
     if m.numLocksHeld[replicaGroup] >= m.rebalanceThreshold {
         if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
-            fmt.Println("MAKING REBALANCING CALLBACK *******")
             rebalanceCallback = m.rebalance(replicaGroup)
-            fmt.Println("FINISHED MAKING IT")
         }
     }
     
     f := func() []byte {
-            fmt.Println("ASKING WORKER TO CLAIM LOCKS")
             m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
-            fmt.Println("FINISHED ASKING WORKER TO CLAIM LOCKS")
             if rebalanceCallback != nil {
-                fmt.Println("CALLING REBALANCING CALLBACK")
                 return rebalanceCallback()
             }
             return nil
