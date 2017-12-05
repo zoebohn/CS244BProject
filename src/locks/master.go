@@ -43,7 +43,7 @@ const numClusterServers = 3
 
 /* Constants for rebalancing */
 //const REBALANCE_THRESHOLD = 7 // was 4 
-const RECRUIT_CLUSTER_LOCALLY = false
+const RECRUIT_CLUSTER_LOCALLY = true 
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
