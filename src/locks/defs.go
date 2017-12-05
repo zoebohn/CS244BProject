@@ -80,7 +80,6 @@ type ValidateLockResponse struct {
     ErrMessage string
 }
 
-/* TODO: define errors. */
 var(
     ErrLockExists = "lock already exists"
     ErrLockDoesntExist = "lock doesn't exist"
