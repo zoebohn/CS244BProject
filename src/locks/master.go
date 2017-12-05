@@ -245,13 +245,18 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     var rebalanceCallback func() []byte
     if m.numLocksHeld[replicaGroup] >= m.rebalanceThreshold {
         if _, ok := m.rebalancingInProgress[replicaGroup]; !ok {
+            fmt.Println("MAKING REBALANCING CALLBACK *******")
             rebalanceCallback = m.rebalance(replicaGroup)
+            fmt.Println("FINISHED MAKING IT")
         }
     }
     
     f := func() []byte {
+            fmt.Println("ASKING WORKER TO CLAIM LOCKS")
             m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
+            fmt.Println("FINISHED ASKING WORKER TO CLAIM LOCKS")
             if rebalanceCallback != nil {
+                fmt.Println("CALLING REBALANCING CALLBACK")
                 return rebalanceCallback()
             }
             return nil
@@ -352,7 +357,6 @@ func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddres
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
-    m.fsmLock.Lock()
     fmt.Println("MASTER: REBALANCING")
     /* Split managed locks into 2 - tell worker */
     locksToMove := m.getLocksToRebalance(replicaGroup)
@@ -364,7 +368,6 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     m.numLocksHeld[newReplicaGroup] = 0
     m.nextReplicaGroupId++
     m.rebalancingInProgress[replicaGroup] = true
-    m.fsmLock.Unlock()
     rebalancing_func := func() []byte {
         fmt.Println("calling rebalancing callback...")
         /* Initiate rebalancing and find recalcitrant locks. */
@@ -571,6 +574,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    m.fsmLock.RLock()
    newReplicaGroup := m.recalcitrantDestMap[l]
    delete(m.recalcitrantDestMap, l)
+   m.fsmLock.RUnlock()
 
    sendLockFunc := func() []byte {
        m.fsmLock.RLock()
@@ -591,6 +595,5 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
        return command
    }
 
-   m.fsmLock.RUnlock()
    return sendLockFunc
 }

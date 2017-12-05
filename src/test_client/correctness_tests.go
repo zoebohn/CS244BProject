@@ -113,6 +113,7 @@ func test_recalcitrant(lc *locks.LockClient) bool {
     for counter < 4 {
         lock := locks.Lock("recal_lock" + strconv.Itoa(counter))
         //fmt.Println("create lock")
+        fmt.Println("-----going to create")
         create_err := lc.CreateLock(lock)
         if create_err != nil {
             fmt.Println("error with creating " + string(lock))
@@ -121,6 +122,7 @@ func test_recalcitrant(lc *locks.LockClient) bool {
         } else {
             //fmt.Println("successfully created lock " + string(lock))
         }
+        fmt.Println("-----going to acquire")
         id, acquire_err := lc.AcquireLock(lock)
         if id == -1 || acquire_err != nil {
             fmt.Println("error with acquiring")
@@ -136,6 +138,7 @@ func test_recalcitrant(lc *locks.LockClient) bool {
     counter = 0
     for counter < 4 {
         lock := locks.Lock("recal_lock" + strconv.Itoa(counter))
+        fmt.Println("-----going to release")
         release_err := lc.ReleaseLock(lock)
         if release_err != nil {
             fmt.Println("error with releasing")
