@@ -19,9 +19,7 @@ type WorkerFSM struct{
 }
 
 type WorkerSnapshot struct {
-    LockStateMap map[Lock]lockState
-    SequencerMap map[Lock]Sequencer
-    MasterCluster []raft.ServerAddress
+    json []byte 
 }
 
 type lockState struct{
@@ -119,21 +117,17 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
-    w.FsmLock.RLock()
-    s := WorkerSnapshot{LockStateMap: w.LockStateMap, SequencerMap: w.SequencerMap, MasterCluster: w.MasterCluster}
-    w.FsmLock.RUnlock()
-    return s, nil
+    json, json_err := w.convertToJSON()
+    if json_err != nil {
+        return WorkerSnapshot{json: nil}, json_err
+    }
+    return WorkerSnapshot{json: json}, nil
 }
 
 func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
     /* Write LockStateMap to SnapshotSink */
-    /* TODO needs to be safe to invoke this with concurrent apply - they actually lock it in there implementation */
-    json, json_err := convertToJSON(s)
-    if json_err != nil {
-        return json_err
-    }
     /* Open sink first? */
-    _, err := sink.Write(json)
+    _, err := sink.Write(s.json)
     if err != nil {
         sink.Cancel()
         return err
@@ -146,15 +140,17 @@ func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
 func (s WorkerSnapshot) Release() {
 }
 
-func convertToJSON(workerSnapshot WorkerSnapshot) ([]byte, error) {
-    b, err := json.Marshal(workerSnapshot)
+func (w *WorkerFSM) convertToJSON() ([]byte, error) {
+    w.FsmLock.Lock()
+    b, err := json.Marshal(w)
+    w.FsmLock.Unlock()
     return b, err
 }
 
-func convertFromJSONWorker(byte_arr []byte) (WorkerSnapshot, error) {
-    var workerSnapshot WorkerSnapshot
-    err := json.Unmarshal(byte_arr, &workerSnapshot)
-    return workerSnapshot, err
+func convertFromJSONWorker(byte_arr []byte) (WorkerFSM, error) {
+    var w WorkerFSM
+    err := json.Unmarshal(byte_arr, &w)
+    return w, err
 }
 
 
