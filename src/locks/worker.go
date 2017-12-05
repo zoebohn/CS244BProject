@@ -7,9 +7,11 @@ import(
     "encoding/json"
     "bytes"
     "strconv"
+    "sync"
 )
 
 type WorkerFSM struct{
+    fsmLock sync.RWMutex
     /* Map of lock to lock state. */
     lockStateMap    map[Lock]lockState
     sequencerMap    map[Lock]Sequencer
@@ -107,16 +109,19 @@ func (w *WorkerFSM) Restore(i io.ReadCloser) error {
     if err != nil {
         return err
     }
+    w.fsmLock.Lock()
     w.lockStateMap = snapshotRestored.LockStateMap
     w.sequencerMap = snapshotRestored.SequencerMap
     w.masterCluster = snapshotRestored.MasterCluster
+    w.fsmLock.Unlock()
     return nil
 }
 
 func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
     /* Create snapshot */
-    /* TODO need to lock fsm? */
+    w.fsmLock.RLock()
     s := WorkerSnapshot{LockStateMap: w.lockStateMap, SequencerMap: w.sequencerMap, MasterCluster: w.masterCluster}
+    w.fsmLock.RUnlock()
     return s, nil
 }
 
@@ -154,6 +159,7 @@ func convertFromJSONWorker(byte_arr []byte) (WorkerSnapshot, error) {
 
 
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
+    w.fsmLock.Lock()
     fmt.Println("WORKER: trying to acquire lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
@@ -161,18 +167,22 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      if _, ok := w.lockStateMap[l]; !ok {
          fmt.Println("WORKER: lock state map ", w.lockStateMap)
          fmt.Println("WORKER: error lock doesn't exist")
+         w.fsmLock.Unlock()
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
      if state.Held || state.Disabled {
          fmt.Println("WORKER: error lock held or disabled")
+         w.fsmLock.Unlock()
          return AcquireLockResponse{-1, ErrLockHeld}
      }
      state.Held = true
      state.Client = client
      w.lockStateMap[l] = state
      w.sequencerMap[l] += 1
-     return AcquireLockResponse{w.sequencerMap[l], ""}
+     response := AcquireLockResponse{w.sequencerMap[l], ""}
+     w.fsmLock.Unlock()
+     return response 
 }
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
@@ -182,14 +192,18 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
        If not recalcitrant, release normally. 
        If recalcitrant, mark as disabled and release, notify master. */
     /* TODO: if recalcitrant, tell master and delete (rebalancing protocol). */
+    w.fsmLock.Lock()
     if _, ok := w.lockStateMap[l]; !ok {
+        w.fsmLock.Unlock()
         return ReleaseLockResponse{ErrLockDoesntExist}, nil
     }
     state := w.lockStateMap[l]
     if !state.Held {
+        w.fsmLock.Unlock()
         return ReleaseLockResponse{ErrLockNotHeld}, nil
     }
     if state.Client != client {
+        w.fsmLock.Unlock()
         return ReleaseLockResponse{ErrBadClientRelease}, nil
     }
     state.Client = ""
@@ -199,42 +213,53 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     if state.Recalcitrant {
         state.Disabled = true
         w.lockStateMap[l] = state
+        w.fsmLock.Unlock()
         return ReleaseLockResponse{""}, w.generateRecalcitrantReleaseAlert(l)
     }
 
+    w.fsmLock.Unlock()
     return ReleaseLockResponse{""}, nil
 }
 
 func (w *WorkerFSM) validateLock(l Lock, s Sequencer) ValidateLockResponse {
+    w.fsmLock.RLock()
     if _, ok := w.lockStateMap[l]; !ok {
+        w.fsmLock.Unlock()
         return ValidateLockResponse{false, ErrLockDoesntExist}
     }
     if s == w.sequencerMap[l] {
+        w.fsmLock.Unlock()
         return ValidateLockResponse{true, ""}
     } else {
+        w.fsmLock.Unlock()
         return ValidateLockResponse{false, ""}
     }
 }
 
 func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
+    w.fsmLock.Lock()
     for _, l := range lock_arr {
         fmt.Println("WORKER: claiming lock ", string(l))
         w.lockStateMap[l] = lockState{Held: false, Client: "", Recalcitrant: false, }
         w.sequencerMap[l] = 0
     }
     fmt.Println("--> CLAIM WORKER LOCK MAP: ", w.lockStateMap)
+    w.fsmLock.Unlock()
 }
 
 func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
+    w.fsmLock.Lock()
     for _, l := range lock_arr {
         fmt.Println("WORKER: disowning lock ", string(l))
         delete(w.lockStateMap, l)
     }
     fmt.Println("--> DISOWN WORKER LOCK MAP: ", w.lockStateMap)
+    w.fsmLock.Unlock()
 }
 
 
 func (w *WorkerFSM) handleRebalanceRequest(lock_arr []Lock) (RebalanceResponse) {
+    w.fsmLock.Lock()
     recalcitrantLocks := make(map[Lock]int)
     for _, l := range lock_arr {
         state := w.lockStateMap[l]
@@ -246,6 +271,7 @@ func (w *WorkerFSM) handleRebalanceRequest(lock_arr []Lock) (RebalanceResponse) 
         }
         w.lockStateMap[l] = state
     }
+    w.fsmLock.Unlock()
     return RebalanceResponse{recalcitrantLocks}
 }
 
@@ -273,6 +299,7 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
 }
 
 func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
+    w.fsmLock.Lock()
     fmt.Println("WORKER: Releasing locks for client ", client)
     for l := range(w.lockStateMap) {
         state := w.lockStateMap[l]
@@ -282,4 +309,5 @@ func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
             w.lockStateMap[l] = state
         }
     }
+    w.fsmLock.Unlock()
 }

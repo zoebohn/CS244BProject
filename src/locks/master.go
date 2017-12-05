@@ -9,9 +9,11 @@ import(
     "bytes"
     "strconv"
     "sort"
+    "sync"
 )
 
 type MasterFSM struct {
+    fsmLock sync.RWMutex
     /* Map of locks to replica group where stored. */
     lockMap             map[Lock]ReplicaGroupId
     /* Map of replica group IDs to server addresses of the servers in that replica group. */
@@ -146,10 +148,11 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
 
 /* TODO: what to do here? */
 func (m *MasterFSM) Snapshot() (raft.FSMSnapshot, error) {
-    /* TODO need to lock fsm? */
+    m.fsmLock.RLock() 
     s := MasterSnapshot{LockMap: m.lockMap, ClusterMap: m.clusterMap,
          DomainPlacementMap: m.domainPlacementMap, NumLocksHeld: m.numLocksHeld,
          NextReplicaGroupId: m.nextReplicaGroupId, MasterCluster: m.masterCluster, RecruitAddrs: m.recruitAddrs, RebalanceThreshold: m.rebalanceThreshold, RecalcitrantDestMap: m.recalcitrantDestMap}
+    m.fsmLock.RUnlock()
     return s, nil
 }
 
@@ -163,6 +166,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     if err != nil {
         return err
     }
+    m.fsmLock.Lock()
     m.lockMap = snapshotRestored.LockMap
     m.clusterMap = snapshotRestored.ClusterMap
     m.domainPlacementMap = snapshotRestored.DomainPlacementMap
@@ -172,7 +176,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.recruitAddrs = snapshotRestored.RecruitAddrs
     m.rebalanceThreshold = snapshotRestored.RebalanceThreshold
     m.recalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
-
+    m.fsmLock.Unlock()
     return nil
 }
 
@@ -208,6 +212,7 @@ func convertFromJSONMaster(byte_arr []byte) (MasterSnapshot, error) {
 }
 
 func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
+    m.fsmLock.Lock()
     fmt.Println("MASTER: master creating lock with name ", string(l))
     fmt.Println("MASTER: Lock map ", m.lockMap)
     /* Check if already eddxists (return false).
@@ -218,19 +223,23 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
       Add lock to lockMap */
     // TODO: sanitize lock name?
     if _, ok := m.lockMap[l]; ok {
+        m.fsmLock.Unlock()
         return nil, CreateLockResponse{ErrLockExists}
     }
     if len(string(l)) == 0 {
+        m.fsmLock.Unlock()
         return nil, CreateLockResponse{ErrEmptyPath}
     }
     domain := getParentDomain(string(l))
     fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     replicaGroups, ok := m.domainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
+        m.fsmLock.Unlock()
         return nil, CreateLockResponse{ErrNoIntermediateDomain}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
     if err != "" {
+        m.fsmLock.Unlock()
         return nil, CreateLockResponse{err}
     }
     m.numLocksHeld[replicaGroup]++
@@ -251,32 +260,38 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
             return nil
     }
 
-
+    m.fsmLock.Unlock()
     return f, CreateLockResponse{""}
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
+    m.fsmLock.Lock()
     fmt.Println("MASTER: master creating domain ", string(d))
     /* Check if already exists (return false).
        Check that intermediate domains exist.
        Get replica group ID where should be put.
        Add to domainPlacementMap. */
     if _, ok := m.domainPlacementMap[d]; ok {
-       return CreateDomainResponse{ErrDomainExists}
+        m.fsmLock.Unlock()
+        return CreateDomainResponse{ErrDomainExists}
     }
     if len(string(d)) == 0 {
+        m.fsmLock.Unlock()
         return CreateDomainResponse{ErrEmptyPath}
     }
     domain := getParentDomain(string(d))
     replicaGroups, ok := m.domainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
+        m.fsmLock.Unlock()
         return CreateDomainResponse{ErrNoIntermediateDomain}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
     if err != "" {
+        m.fsmLock.Unlock()
         return CreateDomainResponse{err}
     }
     m.domainPlacementMap[d] = []ReplicaGroupId{replicaGroup}
+    m.fsmLock.Unlock()
     return CreateDomainResponse{""}
 }
 
@@ -284,12 +299,16 @@ func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
     /* Check that lock exists.
        Check lockMap to find replica group ID. 
        Return replica groupID and servers using clusterMap. */
+    m.fsmLock.RLock()
     replicaGroup, ok := m.lockMap[l]
     fmt.Println("LOCK MAP: ", m.lockMap)
     if !ok {
+        m.fsmLock.RUnlock()
         return LocateLockResponse{-1, nil, ErrLockDoesntExist}
     }
-    return LocateLockResponse{replicaGroup, m.clusterMap[replicaGroup], ""}
+    response := LocateLockResponse{replicaGroup, m.clusterMap[replicaGroup], ""}
+    m.fsmLock.RUnlock()
+    return response 
 }
 
 func getParentDomain(path string) Domain {
@@ -342,6 +361,7 @@ func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddres
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
+    m.fsmLock.Lock()
     fmt.Println("MASTER: REBALANCING")
     /* Split managed locks into 2 - tell worker */
     locksToMove := m.getLocksToRebalance(replicaGroup)
@@ -353,7 +373,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     m.numLocksHeld[newReplicaGroup] = 0
     m.nextReplicaGroupId++
     m.rebalancingInProgress[replicaGroup] = true
-
+    m.fsmLock.Unlock()
     rebalancing_func := func() []byte {
         fmt.Println("calling rebalancing callback...")
         /* Initiate rebalancing and find recalcitrant locks. */
@@ -403,7 +423,9 @@ func (m *MasterFSM) genericClusterRequest(replicaGroup ReplicaGroupId, args map[
         //TODO
         fmt.Println("MASTER: JSON ERROR")
     }
+    m.fsmLock.RLock()
     send_err := raft.SendSingletonRequestToCluster(m.clusterMap[replicaGroup], command, resp)
+    m.fsmLock.RUnlock()
     if send_err != nil {
        fmt.Println("MASTER: send err ", send_err)
     }
@@ -445,6 +467,7 @@ func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLo
 
 /* Transfer ownership of locks in master and tell old replica group to disown locks. Should only be called after new replica group owns locks. */
 func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, movingLocks []Lock, recalcitrantLocks []Lock) func() []byte {
+    m.fsmLock.Lock()
     /* Update master state to show that locks have moved. */
     m.numLocksHeld[oldGroupId] -= len(movingLocks)
     for _, l := range(movingLocks) {
@@ -508,13 +531,15 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
     /* Ask old replica group to disown locks being moved. */
     f := func() []byte {
         m.askWorkerToDisownLocks(oldGroupId, movingLocks)
+        m.fsmLock.Unlock()
         return nil
     }
-
+    m.fsmLock.Unlock()
     return f
 }
 
 func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, newGroupId ReplicaGroupId, l Lock) func() []byte {
+    m.fsmLock.Lock()
     /* Update state for transferring recalcitrant lock. */
     m.lockMap[l] = newGroupId
     m.numLocksHeld[newGroupId]++
@@ -523,9 +548,11 @@ func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, ne
     /* Ask worker to disown lock now that transferred. */
     f := func() []byte {
         m.askWorkerToDisownLocks(oldGroupId, []Lock{l})
+        m.fsmLock.Unlock()
         return nil
     }
 
+    m.fsmLock.Unlock()
     return f
 }
 
@@ -552,11 +579,14 @@ func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
 
 func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    /* Find replica group to place lock into, remove recalcitrant lock entry in map. */
+   m.fsmLock.RLock()
    newReplicaGroup := m.recalcitrantDestMap[l]
    delete(m.recalcitrantDestMap, l)
 
    sendLockFunc := func() []byte {
+       m.fsmLock.RLock()
        fmt.Println("MASTER: send ", l, " to ", newReplicaGroup, " at ", m.clusterMap[newReplicaGroup])
+       m.fsmLock.RUnlock()
        m.askWorkerToClaimLocks(newReplicaGroup, []Lock{l})
 
        /* Tell master to transfer ownership of locks. */
@@ -572,5 +602,6 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
        return command
    }
 
+   m.fsmLock.RUnlock()
    return sendLockFunc
 }

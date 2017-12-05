@@ -26,6 +26,7 @@ func main() {
     masterAddrs := eval.GenerateMasterServerList(masterIP)
     recruitList := make([][]raft.ServerAddress, 0)
     for _,workerIP := range workerIPs {
+        fmt.Println("worker ip", workerIP)
         workers := eval.GenerateWorkerServerList(workerIP)
         recruitList = append(recruitList, workers)
     }
