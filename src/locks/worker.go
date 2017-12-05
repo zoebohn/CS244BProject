@@ -224,14 +224,14 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
 func (w *WorkerFSM) validateLock(l Lock, s Sequencer) ValidateLockResponse {
     w.fsmLock.RLock()
     if _, ok := w.lockStateMap[l]; !ok {
-        w.fsmLock.Unlock()
+        w.fsmLock.RUnlock()
         return ValidateLockResponse{false, ErrLockDoesntExist}
     }
     if s == w.sequencerMap[l] {
-        w.fsmLock.Unlock()
+        w.fsmLock.RUnlock()
         return ValidateLockResponse{true, ""}
     } else {
-        w.fsmLock.Unlock()
+        w.fsmLock.RUnlock()
         return ValidateLockResponse{false, ""}
     }
 }
