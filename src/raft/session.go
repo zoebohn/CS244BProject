@@ -278,7 +278,8 @@ func buildNetConn(target ServerAddress) (*netConn, error) {
     fmt.Println("TRYING TO DIAL: ", target)
     conn, err := net.Dial("tcp", string(target))
 	if err != nil {
-		return nil, err
+        fmt.Println("error dialing: ", err)
+        return nil, err
 	}
 
 	// Wrap the conn

@@ -29,10 +29,11 @@ func main() {
     clientAddr := raft.ServerAddress(clientIP + ":0")
     masterAddrs := eval.GenerateMasterServerList(masterIP)
     lockList := eval.GenerateLockList(numLocksPerClient, totalClients, diffDomains)
-    createLocks(lockList, clientAddr, masterAddrs)
+    domainList := eval.GenerateDomainList(totalClients, diffDomains)
+    createLocksAndDomains(lockList, domainList, clientAddr, masterAddrs)
 }
 
-func createLocks(lockList [][]locks.Lock, clientAddr raft.ServerAddress, masterAddrs []raft.ServerAddress) {
+func createLocksAndDomains(lockList [][]locks.Lock, domainList []locks.Domain, clientAddr raft.ServerAddress, masterAddrs []raft.ServerAddress) {
    trans, err := raft.NewTCPTransport(string(clientAddr), nil, 2, time.Second, nil)
     if err != nil {
         fmt.Println("err: ", err)
@@ -41,6 +42,12 @@ func createLocks(lockList [][]locks.Lock, clientAddr raft.ServerAddress, masterA
     lc, lc_err := locks.CreateLockClient(trans, masterAddrs)
     if lc_err != nil {
         fmt.Println("err: ", lc_err)
+    }
+    for _, d := range domainList {
+        create_err := lc.CreateDomain(d)
+        if create_err != nil {
+            fmt.Println("err: ", create_err)
+        }
     }
     for _,list := range lockList {
         for _, l := range list {
