@@ -40,7 +40,7 @@ type MasterFSM struct {
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const RECRUIT_CLUSTER_LOCALLY = true 
+const RECRUIT_CLUSTER_LOCALLY = false 
 
 /* TODO: what do we need to do here? */
 type MasterSnapshot struct{
