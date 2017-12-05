@@ -160,6 +160,7 @@ func convertFromJSONWorker(byte_arr []byte) (WorkerSnapshot, error) {
 
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
     w.fsmLock.Lock()
+    defer w.fsmLock.Unlock()
     fmt.Println("WORKER: trying to acquire lock ", string(l))
     /* Check that lock exists, not disabled.
        If not held, acquire and return true.
@@ -167,13 +168,14 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      if _, ok := w.lockStateMap[l]; !ok {
          fmt.Println("WORKER: lock state map ", w.lockStateMap)
          fmt.Println("WORKER: error lock doesn't exist")
-         w.fsmLock.Unlock()
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
      state := w.lockStateMap[l]
+     if state.Held && state.Client == client {
+        return AcquireLockResponse{w.sequencerMap[l], ""}
+     }
      if state.Held || state.Disabled {
          fmt.Println("WORKER: error lock held or disabled")
-         w.fsmLock.Unlock()
          return AcquireLockResponse{-1, ErrLockHeld}
      }
      state.Held = true
@@ -181,7 +183,6 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
      w.lockStateMap[l] = state
      w.sequencerMap[l] += 1
      response := AcquireLockResponse{w.sequencerMap[l], ""}
-     w.fsmLock.Unlock()
      return response 
 }
 
