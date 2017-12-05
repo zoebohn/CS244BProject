@@ -29,10 +29,10 @@ func main() {
     fmt.Println("")
     output_test(test_validate(lc), "validate_lock")
     //test rebalancing
-    output_test(test_recalcitrant(lc), "recalcitrant_locks")
+  /*  output_test(test_recalcitrant(lc), "recalcitrant_locks")
     output_test(test_rebalancing(lc), "basic_rebalancing")
     output_test(test_rebalancing_domains(lc), "rebalancing domains")
-    output_test(test_simple(lc), "simple")
+    */output_test(test_simple(lc), "simple")
     output_test(test_double_acquire(lc), "double_acquire")
     output_test(test_release_unacquired_lock(lc), "release_unacquired")
     output_test(test_duplicate_create(lc), "duplicate_create")
