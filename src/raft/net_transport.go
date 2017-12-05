@@ -414,7 +414,6 @@ func (n *NetworkTransport) DecodePeer(buf []byte) ServerAddress {
 // listen is used to handling incoming connections.
 func (n *NetworkTransport) listen() {
 	for {
-        n.logger.Printf("--> listening at %v", n.LocalAddr())
         // Accept incoming connections
 		conn, err := n.stream.Accept()
         if err != nil {
