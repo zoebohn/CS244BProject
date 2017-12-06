@@ -1363,6 +1363,7 @@ func (r *Raft) installSnapshot(rpc RPC, req *InstallSnapshotRequest) {
 	return
 }
 
+// Handle a clientRequest RPC from client.
 func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     r.logger.Printf("SUCCESSFULLY SENT CLIENT REQUEST")
     leader := r.Leader()
@@ -1392,15 +1393,13 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
             r.leaderState.clientSessionsLock.RUnlock()
             ch <- true
         }
-        // Put in applyCh
+        // Apply all commands in client request.
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
-            // Serializing client requests, TODO paralellize
             var rpcErr error
             for _,entry := range(c.Entries) {
                 r.applyCommand(entry.Data, resp, &rpcErr)
             }
             rpc.Respond(resp, rpcErr)
-            // TODO: might want to also extract response from f
         }(r, resp, rpc, c)
     } else {
         rpcErr = ErrNotLeader
@@ -1409,8 +1408,9 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
     }
 }
 
+// Apply a command from leader to all raft FSMs. */
 func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error) {
-    f := r.Apply(command, 0) //TODO: change to configurable value
+    f := r.Apply(command, 0)
     if f.Error() != nil {
         r.logger.Printf("err: %v",f.Error())
         *rpcErr = f.Error()
@@ -1422,10 +1422,7 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
     if f.Callback() != nil {
         nextCommand = f.Callback()()
     }
-    data, json_err := json.Marshal(f.Response())
-    if json_err != nil {
-       // Check 
-    }
+    data, _:= json.Marshal(f.Response())
     resp.ResponseData = data
     resp.Success = true
     if nextCommand != nil {
@@ -1433,6 +1430,7 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
     }
 }
 
+/* Manage a client session. */
 func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
     r.leaderState.clientSessionsLock.RLock()
     ch := r.leaderState.clientSessions[clientAddr].heartbeatCh
@@ -1444,8 +1442,6 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
             r.leaderState.clientSessions[clientAddr].lastContact = time.Now()
             r.leaderState.clientSessionsLock.Unlock()
         case <- time.After(5*time.Second):
-            // TODO: do any notification for ending client session
-            // But only affects state if drops connection to leader.
             r.logger.Printf("ending client session")
             var err error
             r.leaderState.clientSessionsLock.RLock()
@@ -1459,7 +1455,6 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
         }
     }
 }
-
 
 // setLastContact is used to set the last contact time to now
 func (r *Raft) setLastContact() {

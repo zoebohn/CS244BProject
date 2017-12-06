@@ -9,15 +9,17 @@ import (
 )
 
 type LockClient struct {
+    /* Client transport layer. */
     trans           *raft.NetworkTransport
+    /* Location of master servers. */
     masterServers   []raft.ServerAddress
-    // TODO: need to go from lock domain to replica group ID
+    /* Location of locks. */
     locks           map[Lock]ReplicaGroupId
-    sessions        map[ReplicaGroupId]*raft.Session // Possibly make this a map so know what clients correspond to which domains.
+    /* Open sessions with replica groups. */
+    sessions        map[ReplicaGroupId]*raft.Session
+    /* Location of all servers in a replica group. */
     replicaServers  map[ReplicaGroupId][]raft.ServerAddress
 }
-
-// TODO: use some sort of client ID (trans.LocalAddr()?) to identify lock client in requests.
 
 /* Create lock client. */
 func CreateLockClient(trans *raft.NetworkTransport, masterServers []raft.ServerAddress) (*LockClient, error) {
@@ -86,12 +88,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
     var response AcquireLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println(resp.ResponseData)
-        fmt.Println("response: ", resp)
-        fmt.Println(response)
         fmt.Println("LOCK-CLIENT: error unmarshalling acquire for ", l)
-        //TODO
-        fmt.Println(unmarshal_err)
     }
     if response.ErrMessage != "" {
         if response.ErrMessage == ErrLockDoesntExist {
@@ -114,7 +111,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
             resp := raft.ClientResponse{}
             send_err := session.SendRequest(data, &resp)
             if send_err != nil || !resp.Success {
-                return -1, send_err    
+                return -1, send_err
             }
             unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
             if unmarshal_err != nil {
@@ -164,12 +161,7 @@ func (lc *LockClient) ReleaseLock(l Lock) error {
     var response ReleaseLockResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println(resp.ResponseData)
-        fmt.Println(resp)
-        fmt.Println(response)
         fmt.Println("LOCK-CLIENT: error unmarshalling release for ", l)
-        //TODO
-        fmt.Println(unmarshal_err)
     }
     if response.ErrMessage != "" {
         return errors.New(response.ErrMessage)
@@ -198,8 +190,6 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
         fmt.Println("LOCK-CLIENT: error unmarshalling create")
-        //TODO
-        fmt.Println(unmarshal_err)
     }
     if response.ErrMessage != "" {
         return errors.New(response.ErrMessage)
@@ -267,8 +257,6 @@ func (lc *LockClient) CreateDomain(d Domain) (error) {
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
         fmt.Println("LOCK-CLIENT: error unmarshalling")
-        //TODO
-        fmt.Println(unmarshal_err)
     }
     if response.ErrMessage != "" {
         return errors.New(response.ErrMessage)
@@ -299,8 +287,6 @@ func (lc *LockClient) askMasterToLocate(l Lock) (ReplicaGroupId, error) {
     unmarshal_err := json.Unmarshal(resp.ResponseData, &located)
     if unmarshal_err != nil {
         fmt.Println("LOCK-CLIENT: error unmarshalling")
-        //TODO
-        fmt.Println(unmarshal_err)
     }
     //TODO CHECK FOR ERR FIRST
     if located.ErrMessage != "" {
@@ -317,7 +303,7 @@ func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) 
     if existing != nil {
         return existing, nil
     }
-    server_addrs, ok := lc.replicaServers[id] // TODO @EMMA will we always have this? @ZOE need to make sure it's not null or we call askMasterToLocate if not true, adding error so we can figure out if we mess this up
+    server_addrs, ok := lc.replicaServers[id]
     if !ok {
         return nil, errors.New(ErrNoServersForId)
     }
@@ -334,5 +320,3 @@ func (lc *LockClient) getSessionForId(id ReplicaGroupId) (*raft.Session, error) 
     /* Return error if don't have server addresses for replica group ID. */
     return new_session, err
 }
-
-

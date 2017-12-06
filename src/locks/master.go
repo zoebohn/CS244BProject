@@ -40,9 +40,8 @@ type MasterFSM struct {
 const numClusterServers = 3
 
 /* Constants for rebalancing */
-const RECRUIT_CLUSTER_LOCALLY = false 
+const RECRUIT_CLUSTER_LOCALLY = true 
 
-/* TODO: what do we need to do here? */
 type MasterSnapshot struct{
     json    []byte
 }
@@ -79,16 +78,13 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
     return fsms
 }
 
-/* TODO: Do we need some kind of FSM init? like a flag that's set for if it's inited and then otherwise we init on first request? */
 func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
     /* Interpret log to find command. Call appropriate function. */
 
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
     if err != nil {
-        //TODO
-        fmt.Println("MASTER: error in apply")
-        fmt.Println(err)
+        fmt.Println("MASTER: error in apply: ", err)
     }
     function := args[FunctionKey]
     switch function {
@@ -134,7 +130,6 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
     return nil, nil
 }
 
-/* TODO: what to do here? */
 func (m *MasterFSM) Snapshot() (raft.FSMSnapshot, error) {
     json, json_err := m.convertToJSON()
     if json_err != nil {
@@ -168,8 +163,6 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
 }
 
 func (s MasterSnapshot) Persist(sink raft.SnapshotSink) error {
-    /* TODO needs to be safe to invoke this with concurrent apply - they actually lock it in there implementation */
-    /* Open sink first? */
     _, err := sink.Write(s.json)
     if err != nil {
         sink.Cancel()
@@ -200,14 +193,6 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     fmt.Println("MASTER: master creating lock with name ", string(l))
-    fmt.Println("MASTER: Lock map ", m.LockMap)
-    /* Check if already eddxists (return false).
-      Check that intermediate domains exist. 
-      Get replica group ID where should be put.
-      Tell replica group to make that log
-      numLocksHeld[group]++
-      Add lock to lockMap */
-    // TODO: sanitize lock name?
     if _, ok := m.LockMap[l]; ok {
         return nil, CreateLockResponse{ErrLockExists}
     }
@@ -226,14 +211,15 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     }
     m.NumLocksHeld[replicaGroup]++
     m.LockMap[l] = replicaGroup
-    
+
+    /* Trigger rebalancing if number of locks held by replica group >= rebalance threshold. */
     var rebalanceCallback func() []byte
     if m.NumLocksHeld[replicaGroup] >= m.RebalanceThreshold {
         if _, ok := m.RebalancingInProgress[replicaGroup]; !ok {
             rebalanceCallback = m.rebalance(replicaGroup)
         }
     }
-    
+
     f := func() []byte {
             m.askWorkerToClaimLocks(replicaGroup, []Lock{l})
             if rebalanceCallback != nil {
@@ -249,10 +235,6 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     fmt.Println("MASTER: master creating domain ", string(d))
-    /* Check if already exists (return false).
-       Check that intermediate domains exist.
-       Get replica group ID where should be put.
-       Add to domainPlacementMap. */
     if _, ok := m.DomainPlacementMap[d]; ok {
         return CreateDomainResponse{ErrDomainExists}
     }
@@ -273,13 +255,9 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
 }
 
 func (m *MasterFSM) findLock(l Lock) (LocateLockResponse) {
-    /* Check that lock exists.
-       Check lockMap to find replica group ID. 
-       Return replica groupID and servers using clusterMap. */
     m.FsmLock.RLock()
     defer m.FsmLock.RUnlock()
     replicaGroup, ok := m.LockMap[l]
-    fmt.Println("LOCK MAP: ", m.LockMap)
     if !ok {
         return LocateLockResponse{-1, nil, ErrLockDoesntExist}
     }
@@ -324,7 +302,7 @@ func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddres
     if RECRUIT_CLUSTER_LOCALLY {
         MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].MasterCluster), workerAddrs)
     }
-    id := masters[0].NextReplicaGroupId //TODO race condition?
+    id := masters[0].NextReplicaGroupId
     for i := range(masters) {
         masters[i].ClusterMap[masters[i].NextReplicaGroupId] = workerAddrs
         masters[i].NumLocksHeld[masters[i].NextReplicaGroupId] = 0
@@ -338,10 +316,9 @@ func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddres
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     fmt.Println("MASTER: REBALANCING")
-    /* Split managed locks into 2 - tell worker */
+    /* Split locks managed by worker into 2. */
     locksToMove := m.getLocksToRebalance(replicaGroup)
     /* Update state in preparation for adding new cluster. */
-    fmt.Println("next replica group ID: ", m.NextReplicaGroupId)
     workerAddrs := m.RecruitAddrs[m.NextReplicaGroupId]
     newReplicaGroup := m.NextReplicaGroupId
     m.ClusterMap[newReplicaGroup] = workerAddrs
@@ -349,7 +326,6 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
     m.NextReplicaGroupId++
     m.RebalancingInProgress[replicaGroup] = true
     rebalancing_func := func() []byte {
-        fmt.Println("calling rebalancing callback...")
         /* Initiate rebalancing and find recalcitrant locks. */
         recalcitrantLocks := m.initiateRebalance(replicaGroup, locksToMove)
 
@@ -394,7 +370,6 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
 func (m *MasterFSM) genericClusterRequest(replicaGroup ReplicaGroupId, args map[string]string, resp *raft.ClientResponse) {
     command, json_err := json.Marshal(args)
     if json_err != nil {
-        //TODO
         fmt.Println("MASTER: JSON ERROR")
     }
     m.FsmLock.RLock()
