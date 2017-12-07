@@ -26,44 +26,40 @@ func main() {
         fmt.Println(err)
     }
     fmt.Println("")
-    fmt.Println("")
     fmt.Println("1. Create Domain")
     fmt.Println("2. Create Lock")
     fmt.Println("3. Acquire Lock")
     fmt.Println("4. Release Lock")
-    fmt.Println("")
-    fmt.Println("")
+    fmt.Print("Enter a number: ")
 
     for true {
         reader := bufio.NewReader(os.Stdin)
         switch input, _ := reader.ReadString('\n'); input {
 	    case "1\n":
-            fmt.Println("Enter domain: ")
+            fmt.Print("Enter domain: ")
             domain, _ := reader.ReadString('\n')
-            create_domain(lc, domain)	
+            create_domain(lc, domain[0:len(domain) - 1])
 	    case "2\n":
-            fmt.Println("Enter lock: ")
+            fmt.Print("Enter lock: ")
             lock, _ := reader.ReadString('\n')
-		    create_lock(lc, lock)
+		    create_lock(lc, lock[0:len(lock) - 1])
 	    case "3\n":
-            fmt.Println("Enter lock: ")
+            fmt.Print("Enter lock: ")
             lock, _ := reader.ReadString('\n')
-            acquire_lock(lc, lock)
+            acquire_lock(lc, lock[0:len(lock) - 1])
 	    case "4\n":
-            fmt.Println("Enter lock: ")
+            fmt.Print("Enter lock: ")
             lock, _ := reader.ReadString('\n')
-            release_lock(lc, lock) 
+            release_lock(lc, lock[0:len(lock) - 1])
 	    default:
 		    fmt.Printf("Invalid input.")
         }
-    fmt.Println("")
     fmt.Println("")
     fmt.Println("1. Create Domain")
     fmt.Println("2. Create Lock")
     fmt.Println("3. Acquire Lock")
     fmt.Println("4. Release Lock")
-    fmt.Println("")
-    fmt.Println("")
+    fmt.Print("Enter a number: ")
     }
 }
 

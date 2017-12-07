@@ -193,22 +193,25 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     fmt.Println("MASTER: master creating lock with name ", string(l))
-    if _, ok := m.LockMap[l]; ok {
-        return nil, CreateLockResponse{ErrLockExists}
-    }
     if len(string(l)) == 0 {
         return nil, CreateLockResponse{ErrEmptyPath}
     }
+    if string(l[0]) != "/" {
+        l = "/" + l
+    }
     domain := getParentDomain(string(l))
-    fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     replicaGroups, ok := m.DomainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
         return nil, CreateLockResponse{ErrNoIntermediateDomain}
+    }
+    if _, ok := m.LockMap[l]; ok {
+        return nil, CreateLockResponse{ErrLockExists}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
     if err != "" {
         return nil, CreateLockResponse{err}
     }
+    fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     m.NumLocksHeld[replicaGroup]++
     m.LockMap[l] = replicaGroup
 
@@ -235,9 +238,6 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     fmt.Println("MASTER: master creating domain ", string(d))
-    if _, ok := m.DomainPlacementMap[d]; ok {
-        return CreateDomainResponse{ErrDomainExists}
-    }
     if len(string(d)) == 0 {
         return CreateDomainResponse{ErrEmptyPath}
     }
@@ -245,6 +245,12 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     replicaGroups, ok := m.DomainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
         return CreateDomainResponse{ErrNoIntermediateDomain}
+    }
+    if string(d[0]) != "/" {
+        d = "/" + d
+    }
+    if _, ok := m.DomainPlacementMap[d]; ok {
+        return CreateDomainResponse{ErrDomainExists}
     }
     replicaGroup, err := m.choosePlacement(replicaGroups)
     if err != "" {

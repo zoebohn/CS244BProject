@@ -182,7 +182,6 @@ START:
 	}
 
 	// Make the RPC call
-	r.logger.Printf("Make AppendEntries call")
     start = time.Now()
 	if err := r.trans.AppendEntries(s.peer.ID, s.peer.Address, &req, &resp); err != nil {
 		r.logger.Printf("[ERR] raft: Failed to AppendEntries to %v: %v", s.peer, err)
