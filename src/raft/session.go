@@ -19,6 +19,7 @@ type Session struct {
     endSessionCommand   []byte
 }
 
+// Send request to cluster without using session.
 func SendSingletonRequestToCluster(addrs []ServerAddress, data []byte, resp *ClientResponse) error {
     if resp == nil {
         return errors.New("Response is nil")
@@ -39,8 +40,8 @@ func SendSingletonRequestToCluster(addrs []ServerAddress, data []byte, resp *Cli
 }
 
 
-// Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
-// Start go routine to periodically send heartbeat messages and switch to new leader when necessary. 
+/* Open client session to cluster. Takes clientID, server addresses for all servers in cluster, and returns success or failure.
+   Start go routine to periodically send heartbeat messages and switch to new leader when necessary. */ 
 func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress, endSessionCommand []byte) (*Session, error) {
     session := &Session{
         trans: trans,
@@ -59,8 +60,7 @@ func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress, endSess
 }
 
 
-// make request to open session. Take data and ptr to response and clientID.
-// check active!
+/* Make request to open session. */
 func (s *Session) SendRequest(data []byte, resp *ClientResponse) error {
     if !s.active {
         return errors.New("Inactive client session.")

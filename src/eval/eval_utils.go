@@ -17,7 +17,7 @@ func GenerateLockList(numLocksPerClient int, totalClients int, diffDomains bool)
             if diffDomains {
                 l = locks.Lock("/" + strconv.Itoa(i) + "/" + "lock_" + strconv.Itoa(j))
             } else {
-                l =  locks.Lock("lock_" + strconv.Itoa(i) + "," +  strconv.Itoa(j))
+                l =  locks.Lock("lock_" + strconv.Itoa(j) + "," +  strconv.Itoa(i))
             }
             lockList[i] = append(lockList[i], l)
             j++

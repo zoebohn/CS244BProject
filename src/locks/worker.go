@@ -47,13 +47,10 @@ func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
 
 func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) { 
     /* Interpret log to find command. Call appropriate function. */
-    // use Data and assume it was in json? check type for what
-    // function to call? or maybe we add a log command that's a 
-    // client command and unpack function type from the data
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
     if err != nil {
-        //TODO
+        fmt.Println("WORKER: error in apply, ", err) 
     }
     function := args[FunctionKey]
     switch function {
@@ -87,7 +84,7 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
         case RebalanceCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             response := w.handleRebalanceRequest(lock_arr)
-            return response, nil //TODO: idk about this
+            return response, nil
         case ReleaseForClientCommand:
             c := raft.ServerAddress(args[ClientAddrKey])
             w.releaseForClient(c)
@@ -126,7 +123,6 @@ func (w *WorkerFSM) Snapshot() (raft.FSMSnapshot, error) {
 
 func (s WorkerSnapshot) Persist(sink raft.SnapshotSink) error {
     /* Write LockStateMap to SnapshotSink */
-    /* Open sink first? */
     _, err := sink.Write(s.json)
     if err != nil {
         sink.Cancel()
@@ -158,11 +154,7 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
     fmt.Println("WORKER: trying to acquire lock ", string(l))
-    /* Check that lock exists, not disabled.
-       If not held, acquire and return true.
-       Else, return false. */
      if _, ok := w.LockStateMap[l]; !ok {
-         fmt.Println("WORKER: lock state map ", w.LockStateMap)
          fmt.Println("WORKER: error lock doesn't exist")
          return AcquireLockResponse{-1, ErrLockDoesntExist}
      }
@@ -184,11 +176,6 @@ func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLo
 
 func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
     fmt.Println("WORKER: releasing lock ", string(l))
-    /* Check that lock exists, not disabled.
-       If not held by this client, return error.
-       If not recalcitrant, release normally. 
-       If recalcitrant, mark as disabled and release, notify master. */
-    /* TODO: if recalcitrant, tell master and delete (rebalancing protocol). */
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
     if _, ok := w.LockStateMap[l]; !ok {
@@ -205,6 +192,7 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     state.Held = false
     w.LockStateMap[l] = state
 
+    /* Notify master if lock recalcitrant */
     if state.Recalcitrant {
         state.Disabled = true
         w.LockStateMap[l] = state
@@ -235,7 +223,6 @@ func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
         w.LockStateMap[l] = lockState{Held: false, Client: "", Recalcitrant: false, }
         w.SequencerMap[l] = 0
     }
-    fmt.Println("--> CLAIM WORKER LOCK MAP: ", w.LockStateMap)
 }
 
 func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
@@ -245,7 +232,6 @@ func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
         fmt.Println("WORKER: disowning lock ", string(l))
         delete(w.LockStateMap, l)
     }
-    fmt.Println("--> DISOWN WORKER LOCK MAP: ", w.LockStateMap)
 }
 
 
@@ -285,7 +271,6 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
         }
         return nil
     }
-    /* I don't think it needs to block...*/
     return f
 }
 

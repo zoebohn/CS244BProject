@@ -9,7 +9,7 @@ import(
 	"os"
 )
 
-// TODO: should return error if can't do setup
+// Starts up a new cluster.
 func MakeCluster(n int, fsms []raft.FSM, addrs []raft.ServerAddress) *cluster {
     conf := raft.DefaultConfig()
     bootstrap := true
