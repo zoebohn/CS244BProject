@@ -3,8 +3,8 @@ package main
 import (
     "fmt"
     "raft"
+    "time"
     "locks"
-    "strconv"
     "bufio"
     "os"
 )
@@ -37,19 +37,19 @@ func main() {
     for true {
         reader := bufio.NewReader(os.Stdin)
         switch input, _ := reader.ReadString('\n'); input {
-	    case "1":
+	    case "1\n":
             fmt.Println("Enter domain: ")
             domain, _ := reader.ReadString('\n')
             create_domain(lc, domain)	
-	    case "2":
+	    case "2\n":
             fmt.Println("Enter lock: ")
             lock, _ := reader.ReadString('\n')
 		    create_lock(lc, lock)
-	    case "3":
+	    case "3\n":
             fmt.Println("Enter lock: ")
             lock, _ := reader.ReadString('\n')
             acquire_lock(lc, lock)
-	    case "4":
+	    case "4\n":
             fmt.Println("Enter lock: ")
             lock, _ := reader.ReadString('\n')
             release_lock(lc, lock) 
@@ -67,24 +67,24 @@ func main() {
     }
 }
 
-func create_lock(lc *locks.LockClient, lock string) bool {
-    fmt.Println("Creating lock: ", lock)
-    lock := locks.Lock(lock)
+func create_lock(lc *locks.LockClient, lock_string string) bool {
+    fmt.Println("Creating lock: ", lock_string)
+    lock := locks.Lock(lock_string)
     create_err := lc.CreateLock(lock)
     if create_err != nil {
-        fmt.Println("Error creating lock: ", str(create_err))
+        fmt.Println("Error creating lock: ", create_err)
         return false
     }
     fmt.Println("Successfully created lock!")
     return true
 }
 
-func acquire_lock(lc *locks.LockClient, lock string) bool {
-    fmt.Println("Acquiring lock: ", lock)
-    lock := locks.Lock("demo_domain/demo_lock")
+func acquire_lock(lc *locks.LockClient, lock_string string) bool {
+    fmt.Println("Acquiring lock: ", lock_string)
+    lock := locks.Lock(lock_string)
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
-       fmt.Println("Error acquiring lock: ", str(acquire_err))
+       fmt.Println("Error acquiring lock: ", (acquire_err))
        return false
     }
     fmt.Println("Successfully acquired lock!")
@@ -93,22 +93,21 @@ func acquire_lock(lc *locks.LockClient, lock string) bool {
 
 func create_domain(lc *locks.LockClient, domain string) bool {
     fmt.Println("Creating domain: ", domain)
-    success := true
     err1 := lc.CreateDomain(locks.Domain(domain))
     if err1 != nil {
-        fmt.Println("Error creating domain: ", str(err1))
-        success = false
+        fmt.Println("Error creating domain: ", (err1))
+        return false
     }
     fmt.Println("Successfully created domain!")
-    return success
+    return true 
 }
 
-func release_lock(lc *locks.LockClient, lock string) bool {
-    fmt.Println("Releasing lock: ", lock)
-    lock := locks.Lock(lock)
+func release_lock(lc *locks.LockClient, lock_string string) bool {
+    fmt.Println("Releasing lock: ", lock_string)
+    lock := locks.Lock(lock_string)
     release_err := lc.ReleaseLock(lock)
     if release_err != nil {
-        fmt.Println("Error releasing lock: ", str(err1))
+        fmt.Println("Error releasing lock: ", (release_err))
         return false
     }
     fmt.Println("Successfully released lock!")
