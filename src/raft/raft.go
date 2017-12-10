@@ -1365,7 +1365,6 @@ func (r *Raft) installSnapshot(rpc RPC, req *InstallSnapshotRequest) {
 
 // Handle a clientRequest RPC from client.
 func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
-    r.logger.Printf("SUCCESSFULLY SENT CLIENT REQUEST")
     leader := r.Leader()
     resp := &ClientResponse{
         Success : false,
