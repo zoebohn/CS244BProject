@@ -94,8 +94,8 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             return response, callback
         case DeleteLockCommand:
             l := Lock(args[LockArgKey])
-            response := m.deleteLock(l)
-            return response, nil
+            callback, response := m.deleteLock(l)
+            return response, callback
         case CreateDomainCommand:
             d := Domain(args[DomainArgKey])
             response := m.createLockDomain(d)
@@ -108,6 +108,14 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             l := Lock(args[LockArgKey])
             callback := m.handleReleasedRecalcitrant(l)
             return nil, callback
+        case DeleteLockNotAcquiredCommand:
+            l := Lock(args[LockArgKey])
+            m.deleteLockNotAcquired(l)
+            return nil, nil
+        case DeleteRecalLockCommand:
+            l := Lock(args[LockArgKey])
+            m.markLockForDeletion(l)
+            return nil, nil
         case TransferLockGroupCommand:
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
             newGroup, err2 := strconv.Atoi(args[NewGroupKey])
@@ -235,28 +243,39 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
             return nil
     }
 
-    return f, CreateLockResponse{""}
+    return f, CreateLockResponse{Success}
 }
 
-func (m *MasterFSM) deleteLock(l Lock) DeleteLockResponse {
+func (m *MasterFSM) deleteLock(l Lock) (func() []byte, DeleteLockResponse) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     fmt.Println("MASTER: master deleting lock ", string(l))
-    /*replicaGroup*/_, ok := m.LockMap[l]
+    replicaGroup, ok := m.LockMap[l]
     if !ok {
-        return DeleteLockResponse{ErrLockDoesntExist}
+        return nil, DeleteLockResponse{ErrLockDoesntExist}
     }
-    //f := func() []byte {
-        /* Ask worker to delete lock or to mark it for delection. */
-        /* If lock not deleted successfully, mark it for deletion. */
-    //    return nil /* return function to process */
-    //}
-    /* Need to contact worker first to find if can delete or mark as recalcitrant. */
-    /* Then mark for moving. */
-    /* Then tell worker to delete. */
-    return DeleteLockResponse{} 
-
-
+    triggerDelete := func()[]byte {
+        fmt.Println("MASTER: delete lock " + l)
+        delete_func := func() []byte {
+            recalcitrantLocks := m.initiateRebalance(replicaGroup, []Lock{l})
+            args := make(map[string]string)
+            if len(recalcitrantLocks) == 0 {
+                /* Lock is not acquired, can be safely deleted. */
+                args[FunctionKey] = DeleteLockNotAcquiredCommand
+            } else {
+                /* Lock is acquired, mark as recalcitrant and wait for release to delete. */
+                args[FunctionKey] = DeleteRecalLockCommand
+            }
+            args[LockArgKey] = string(l)
+            command, json_err := json.Marshal(args)
+            if json_err != nil {
+                fmt.Println("MASTER: json error")
+            }
+            return command
+        }
+        return delete_func()
+    }
+    return triggerDelete, DeleteLockResponse{Success}
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
@@ -343,6 +362,25 @@ func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddres
         masters[i].DomainPlacementMap["/"] = []ReplicaGroupId{id}
     }
     return nil
+}
+
+func (m *MasterFSM) deleteLockNotAcquired(l Lock) func() []byte {
+    m.FsmLock.Lock()
+    defer m.FsmLock.Unlock()
+    replicaGroup := m.LockMap[l]
+    delete(m.LockMap, l)
+    m.NumLocksHeld[replicaGroup]--
+    f := func() []byte {
+        m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
+        return nil
+    }
+    return f
+}
+
+func (m* MasterFSM) markLockForDeletion(l Lock) {
+    m.FsmLock.Lock()
+    defer m.FsmLock.Unlock()
+    m.RecalcitrantDestMap[l] = -1
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
@@ -557,10 +595,23 @@ func (m *MasterFSM) getLocksToRebalance(replicaGroup ReplicaGroupId) ([]Lock) {
 
 func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    /* Find replica group to place lock into, remove recalcitrant lock entry in map. */
-   m.FsmLock.RLock()
+   m.FsmLock.Lock()
+   defer m.FsmLock.Unlock()
+   //m.FsmLock.RLock()
    newReplicaGroup := m.RecalcitrantDestMap[l]
    delete(m.RecalcitrantDestMap, l)
-   m.FsmLock.RUnlock()
+   /* Check if should delete lock. */
+   if newReplicaGroup == -1 {
+        replicaGroup := m.LockMap[l]
+        m.NumLocksHeld[replicaGroup]--
+        delete(m.LockMap, l)
+        f := func() []byte {
+            m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
+            return nil
+        }
+        return f 
+   }
+   //m.FsmLock.RUnlock()
 
    sendLockFunc := func() []byte {
        m.FsmLock.RLock()

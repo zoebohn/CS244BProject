@@ -35,6 +35,8 @@ const ReleasedRecalcitrantCommand string = "rel-recal"
 /* Master responses to RPCs */
 const TransferLockGroupCommand string = "transfer-group"
 const TransferRecalCommand string = "transfer-recal"
+const DeleteLockNotAcquiredCommand string = "delete-not-acq"
+const DeleteRecalLockCommand string = "delete-recal"
 
 /* Return on lock acquires to let user validate that it still holds lock. */
 type Sequencer int
@@ -86,6 +88,7 @@ type ValidateLockResponse struct {
 }
 
 var(
+    Success = ""
     ErrLockExists = "lock already exists"
     ErrLockDoesntExist = "lock doesn't exist"
     ErrNoIntermediateDomain = "no intermediate domain"
