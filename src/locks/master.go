@@ -92,6 +92,10 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             l := Lock(args[LockArgKey])
             callback, response := m.createLock(l)
             return response, callback
+        case DeleteLockCommand:
+            l := Lock(args[LockArgKey])
+            response := m.deleteLock(l)
+            return response, nil
         case CreateDomainCommand:
             d := Domain(args[DomainArgKey])
             response := m.createLockDomain(d)
@@ -232,6 +236,27 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     }
 
     return f, CreateLockResponse{""}
+}
+
+func (m *MasterFSM) deleteLock(l Lock) DeleteLockResponse {
+    m.FsmLock.Lock()
+    defer m.FsmLock.Unlock()
+    fmt.Println("MASTER: master deleting lock ", string(l))
+    /*replicaGroup*/_, ok := m.LockMap[l]
+    if !ok {
+        return DeleteLockResponse{ErrLockDoesntExist}
+    }
+    //f := func() []byte {
+        /* Ask worker to delete lock or to mark it for delection. */
+        /* If lock not deleted successfully, mark it for deletion. */
+    //    return nil /* return function to process */
+    //}
+    /* Need to contact worker first to find if can delete or mark as recalcitrant. */
+    /* Then mark for moving. */
+    /* Then tell worker to delete. */
+    return DeleteLockResponse{} 
+
+
 }
 
 func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {

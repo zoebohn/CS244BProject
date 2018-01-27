@@ -6,6 +6,7 @@ import(
 
 /* Client RPCs */
 const CreateLockCommand string = "CreateLock"  
+const DeleteLockCommand string = "DeleteLock"
 const AcquireLockCommand string = "AcquireLock"  
 const ReleaseLockCommand string = "RelaseLock" 
 const CreateDomainCommand string = "CreateDomainLock" 
@@ -59,6 +60,10 @@ type CreateDomainResponse struct {
 }
 
 type CreateLockResponse struct {
+    ErrMessage string
+}
+
+type DeleteLockResponse struct {
     ErrMessage string
 }
 

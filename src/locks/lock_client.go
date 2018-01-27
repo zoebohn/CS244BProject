@@ -197,6 +197,30 @@ func (lc *LockClient) CreateLock(l Lock) (error) {
     return nil
 }
 
+func (lc *LockClient) DeleteLock(l Lock) (error) {
+    args := make(map[string]string)
+    args[FunctionKey] = DeleteLockCommand
+    args[LockArgKey] = string(l)
+    data, err := json.Marshal(args)
+    if err != nil {
+        return err
+    }
+    resp := raft.ClientResponse{}
+    send_err := raft.SendSingletonRequestToCluster(lc.masterServers, data, &resp)
+    if send_err != nil || !resp.Success {
+        return send_err
+    }
+    var response DeleteLockResponse
+    unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
+    if unmarshal_err != nil {
+        fmt.Println("LOCK-CLIENT: error unmarshalling delete")
+    }
+    if response.ErrMessage != "" {
+        return errors.New(response.ErrMessage)
+    }
+    return nil
+}
+
 func (lc *LockClient) ValidateLock(l Lock, s Sequencer) (bool, error) {
     args := make(map[string]string)
     args[FunctionKey] = ValidateLockCommand 
