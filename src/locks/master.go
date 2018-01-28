@@ -28,6 +28,8 @@ type MasterFSM struct {
     MasterCluster       []raft.ServerAddress
     /* Address of worker clusters to recruit. */
     RecruitAddrs        [][]raft.ServerAddress
+    /* Whether to recruit clusters locally - true for testing. */
+    RecruitClustersLocally  bool
     /* Threshold at which to rebalance. */
     RebalanceThreshold  int
     /* Eventual destinations of recalcitrant locks. */
@@ -39,14 +41,11 @@ type MasterFSM struct {
 
 const numClusterServers = 3
 
-/* Constants for rebalancing */
-const RECRUIT_CLUSTER_LOCALLY = true 
-
 type MasterSnapshot struct{
     json    []byte
 }
 
-func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, rebalanceThreshold int) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, rebalanceThreshold int, recruitClustersLocally bool) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -57,6 +56,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             NextReplicaGroupId: 0,
             MasterCluster:      clusterAddrs,
             RecruitAddrs:       recruitList,
+            RecruitClustersLocally: recruitClustersLocally,
             RebalanceThreshold: rebalanceThreshold,
             RecalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
@@ -65,7 +65,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
     if n <= 0 {
         fmt.Println("MASTER: Cannot have number of masters <= 0")
     }
-    err := recruitInitialCluster(masters, recruitList[0])
+    err := recruitInitialCluster(masters, recruitList[0], recruitClustersLocally)
     if err != nil {
         //TODO
         fmt.Println(err)
@@ -348,8 +348,8 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
     return chosen, "" 
 }
 
-func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddress) (error) {
-    if RECRUIT_CLUSTER_LOCALLY {
+func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddress, recruit_locally bool) (error) {
+    if recruit_locally {
         MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].MasterCluster), workerAddrs)
     }
     id := masters[0].NextReplicaGroupId
@@ -404,7 +404,7 @@ func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
         }
 
         /* Recruit new replica group to store rebalanced locks. */
-        if (RECRUIT_CLUSTER_LOCALLY) {
+        if (m.RecruitClustersLocally) {
             MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.MasterCluster), workerAddrs)
         }
 
