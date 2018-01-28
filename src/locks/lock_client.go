@@ -111,6 +111,7 @@ func (lc *LockClient) AcquireLock(l Lock) (Sequencer, error) {
             resp := raft.ClientResponse{}
             send_err := session.SendRequest(data, &resp)
             if send_err != nil || !resp.Success {
+                fmt.Println("send request error!")
                 return -1, send_err
             }
             unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
