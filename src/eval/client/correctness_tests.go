@@ -8,7 +8,7 @@ import (
     "strconv"
 )
 
-var masterServers = []raft.ServerAddress {"127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"}
+var masterServers = []raft.ServerAddress {"127.0.0.1:40000", "127.0.0.1:40001", "127.0.0.1:40002"}
 
 var numTestsFailed = 0
 
@@ -75,18 +75,22 @@ func test_validate(lc *locks.LockClient) bool {
     lock := locks.Lock("validate_lock")
     create_err := lc.CreateLock(lock)
     if create_err != nil {
-       return false 
+        fmt.Println("err1: ", create_err)
+        return false 
     }
     id, acquire_err := lc.AcquireLock(lock)
     if id == -1 || acquire_err != nil {
+        fmt.Println("err2: ", acquire_err)
        return false 
     }
     valid, validate_err := lc.ValidateLock(lock, id)
     if !valid || validate_err != nil {
+        fmt.Println("err3: ", validate_err)
         return false
     }
     valid, validate_err = lc.ValidateLock(lock, id - 1)
     if valid || validate_err != nil {
+        fmt.Println("err4: ", validate_err)
         return false
     }
     return true

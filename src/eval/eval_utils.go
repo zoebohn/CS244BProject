@@ -45,7 +45,7 @@ func GenerateMasterServerList(ipAddr string)[]raft.ServerAddress {
     masterServers := make([]raft.ServerAddress, 0)
     i := 0
     for i < 3 {
-        server := raft.ServerAddress(ipAddr + ":" + strconv.Itoa(8000 + i))
+        server := raft.ServerAddress(ipAddr + ":" + strconv.Itoa(40000 + i))
         masterServers = append(masterServers, server)
         i++
     }
@@ -56,7 +56,7 @@ func GenerateWorkerServerList(ipAddr string)[]raft.ServerAddress {
     workerServers := make([]raft.ServerAddress, 0)
     i := 0
     for i < 3 {
-        server := raft.ServerAddress(ipAddr + ":" + strconv.Itoa(8000 + i))
+        server := raft.ServerAddress(ipAddr + ":" + strconv.Itoa(40000 + i))
         workerServers = append(workerServers, server)
         i++
     }

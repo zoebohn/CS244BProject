@@ -208,9 +208,6 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     if len(string(l)) == 0 {
         return nil, CreateLockResponse{ErrEmptyPath}
     }
-    if string(l[0]) != "/" {
-        l = "/" + l
-    }
     domain := getParentDomain(string(l))
     replicaGroups, ok := m.DomainPlacementMap[domain]
     if !ok || len(replicaGroups) == 0 {
@@ -284,6 +281,9 @@ func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     fmt.Println("MASTER: master creating domain ", string(d))
     if len(string(d)) == 0 {
         return CreateDomainResponse{ErrEmptyPath}
+    }
+    if strings.Compare(string(d), "/") == 0 {
+        return CreateDomainResponse{ErrDomainExists}
     }
     domain := getParentDomain(string(d))
     replicaGroups, ok := m.DomainPlacementMap[domain]
