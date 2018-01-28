@@ -39,6 +39,7 @@ func main() {
     output_test(test_duplicate_create(lc), "duplicate_create")
     output_test(test_creating_domains(lc),"create_domain")
     output_test(test_acquire_nonexistant_lock(lc), "nonexistant_lock")
+    output_test(test_delete(lc), "delete")
     /* Second client */
     trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
@@ -367,6 +368,56 @@ func test_creating_domains(lc *locks.LockClient) bool {
     }
     return success
 
+}
+
+func test_delete (lc *locks.LockClient) bool {
+    l := locks.Lock("delete_lock")
+    create_err1 := lc.CreateLock(l)
+    if create_err1 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    delete_err1 := lc.DeleteLock(l)
+    if delete_err1 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    /* Wait for delete to propagate. */
+    time.Sleep(1*time.Second)
+    _, acq_err1 := lc.AcquireLock(l)
+    if acq_err1 == nil {
+        fmt.Println("Acquired lock after deleting")
+        return false
+    }
+    /* Create, acquire, delete, release. Should be deleted after released. */
+    create_err2 := lc.CreateLock(l)
+    if create_err2 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    _, acq_err2 := lc.AcquireLock(l)
+    if acq_err2 != nil {
+        fmt.Println("error acquiring lock before delete")
+        return false
+    }
+    delete_err2 := lc.DeleteLock(l)
+    if delete_err2 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    rel_err1 := lc.ReleaseLock(l)
+    if rel_err1 != nil {
+        fmt.Println("error releasing lock after delete")
+        return false
+    }
+    /* Wait for delete to propagate. */
+    time.Sleep(1*time.Second)
+    _, acq_err3 := lc.AcquireLock(l)
+    if acq_err3 == nil {
+        fmt.Println("Acquired lock after deleting")
+        return false
+    }
+    return true
 }
 
 /* Two clients race to create a domain */
