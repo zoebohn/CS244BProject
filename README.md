@@ -13,13 +13,13 @@ Start in src directory.
     correctness_server.go.
 
 ## To evaluate performance:
-# Evaluation overview:
+### Evaluation overview:
     After setting up the master and worker clusters on different machines,
     the set of locks are created across the different clusters. This is not
     timed. Then the clients all try to acquire and release disjoint lock
     sets simultaneously for 1 minute.
 
-# Evaluation parameters:
+### Evaluation parameters:
     * Rebalancing factor: When a worker cluster holds this many locks, it will
     trigger rebalancing. Make sure you start with enough worker clusters to
     support your rebalancing factor (<rebalancing-factor>).
@@ -36,7 +36,7 @@ Start in src directory.
     unique number 0-n if there are n total clients. Used to make sure that
     there is no contention for locks (<i>).
     
-# Run evaluation tests:
+### Run evaluation tests:
     1. Log onto rice machines. You will need 1 for a master cluster, 1
     for each worker cluster, and 1 for each client.
     2. Determine the IP addresses of all machines in the test environment.
