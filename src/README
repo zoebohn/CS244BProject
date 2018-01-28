@@ -1,0 +1,17 @@
+Start in src directory.
+
+To run demo:
+    1. In first terminal window: go run demo/demo_server.go
+    2. In second terminal window: go run demo/demo.go
+    Rebalancing factor default setting is 4, can be changed in 
+    demo_server.go
+
+To test correctness:
+    1. In first terminal window: go run eval/server/correctness_server.go
+    2. In second terminal window: go run eval/client/correctness_tests.go
+    Rebalancing factor default setting is 4, can be changed in 
+    correctness_server.go.
+
+To evaluate performance:
+    1. Log onto rice machines.
+    2. TODO
