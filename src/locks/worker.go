@@ -8,6 +8,7 @@ import(
     "bytes"
     "strconv"
     "sync"
+    "time"
 )
 
 type WorkerFSM struct{
@@ -31,7 +32,17 @@ type lockState struct{
     Recalcitrant    bool
     /* Behaves as though Held by nonexistant client; used for rebalancing */
     Disabled		bool
+    /* Count number of accesses in last period. */
+    FreqCount       int
+    /* Time when last cleared freq count. */
+    PeriodStart     time.Time
+    /* Average frequency of accesses, moving average with FreqCount. */
+    FreqAvg         float64
 }
+
+var PERIOD time.Duration = 1000 * time.Millisecond /* length of period to count number of accesses, ms. */
+
+const WEIGHT float64 = 0.2    /* Weight of new frequency count. */
 
 func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     workers := make([]raft.FSM, n)
@@ -153,6 +164,7 @@ func convertFromJSONWorker(byte_arr []byte) (WorkerFSM, error) {
 func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse) {
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
+    w.updateFreqForOneOp(l)
     fmt.Println("WORKER: trying to acquire lock ", string(l))
      if _, ok := w.LockStateMap[l]; !ok {
          fmt.Println("WORKER: error lock doesn't exist")
@@ -178,6 +190,7 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
     fmt.Println("WORKER: releasing lock ", string(l))
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
+    w.updateFreqForOneOp(l)
     if _, ok := w.LockStateMap[l]; !ok {
         return ReleaseLockResponse{ErrLockDoesntExist}, nil
     }
@@ -276,7 +289,7 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
 
 func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
     w.FsmLock.Lock()
-    w.FsmLock.Unlock()
+    defer w.FsmLock.Unlock()
     fmt.Println("WORKER: Releasing locks for client ", client)
     for l := range(w.LockStateMap) {
         state := w.LockStateMap[l]
@@ -286,4 +299,15 @@ func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
             w.LockStateMap[l] = state
         }
     }
+}
+
+/* Assumes FSM already locked. */
+func (w *WorkerFSM) updateFreqForOneOp(l Lock) {
+    state := w.LockStateMap[l]
+    if (time.Since(state.PeriodStart) >= PERIOD) {
+        state.FreqAvg = ((1 - WEIGHT) * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount));
+        state.FreqCount = 0;
+        state.PeriodStart = time.Now();
+    }
+    state.FreqCount++;
 }
