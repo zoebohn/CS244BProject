@@ -36,6 +36,8 @@ type MasterFSM struct {
     RecalcitrantDestMap map[Lock]ReplicaGroupId
     /* Rebalances in progress */
     RebalancingInProgress map[ReplicaGroupId]bool
+    /* Map of lock to average frequency accessed. Maintained with updates from worker. */
+    AvgFreqMap          map[Lock]float64
 }
 
 
@@ -60,6 +62,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             RebalanceThreshold: rebalanceThreshold,
             RecalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
+            AvgFreqMap:         make(map[Lock]float64),
         }
     }
     if n <= 0 {
@@ -170,6 +173,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.RecruitAddrs = snapshotRestored.RecruitAddrs
     m.RebalanceThreshold = snapshotRestored.RebalanceThreshold
     m.RecalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
+    m.AvgFreqMap = snapshotRestored.AvgFreqMap
     m.FsmLock.Unlock()
     return nil
 }
