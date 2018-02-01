@@ -650,6 +650,7 @@ func (m *MasterFSM) updateFrequencies(lockArr []Lock, freqArr []float64) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     for i := range lockArr {
+        fmt.Println("frequency of ", lockArr[i], " is ", freqArr[i])
         m.AvgFreqMap[lockArr[i]] = freqArr[i]
     }
 }

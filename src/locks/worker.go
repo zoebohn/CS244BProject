@@ -39,7 +39,7 @@ type lockState struct{
     FreqAvg         float64
 }
 
-var PERIOD time.Duration = 1000 * time.Millisecond /* length of period to count number of accesses, ms. */
+var PERIOD time.Duration = 10 * time.Second /* length of period to count number of accesses, ms. */
 
 const WEIGHT float64 = 0.2    /* Weight of new frequency count. */
 
@@ -317,7 +317,9 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
         for curr := range w.LockStateMap {
             state := w.LockStateMap[curr]
             state.FreqAvg = (oldAvgWeight * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount))
+            fmt.Println("WORKER: freq count = ", state.FreqCount, ", avgFreqCt = ", state.FreqCount)
             state.FreqCount = 0
+            w.LockStateMap[curr] = state
         }
         /* Reset period start time. */
         w.PeriodStart = time.Now()
@@ -326,6 +328,7 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
     }
     /* Update frequency in current period. */
     lockState.FreqCount++
+    w.LockStateMap[l] = lockState
     return result
 }
 
