@@ -17,6 +17,7 @@ type WorkerFSM struct{
     LockStateMap    map[Lock]lockState
     SequencerMap    map[Lock]Sequencer
     MasterCluster   []raft.ServerAddress
+    PeriodStart     time.Time
 }
 
 type WorkerSnapshot struct {
@@ -34,8 +35,6 @@ type lockState struct{
     Disabled		bool
     /* Count number of accesses in last period. */
     FreqCount       int
-    /* Time when last cleared freq count. */
-    PeriodStart     time.Time
     /* Average frequency of accesses, moving average with FreqCount. */
     FreqAvg         float64
 }
@@ -303,11 +302,19 @@ func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
 
 /* Assumes FSM already locked. */
 func (w *WorkerFSM) updateFreqForOneOp(l Lock) {
-    state := w.LockStateMap[l]
-    if (time.Since(state.PeriodStart) >= PERIOD) {
-        state.FreqAvg = ((1 - WEIGHT) * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount));
-        state.FreqCount = 0;
-        state.PeriodStart = time.Now();
+    lockState := w.LockStateMap[l]
+    /* Check if should enter new period. */
+    if (time.Since(w.PeriodStart) >= PERIOD) {
+        /* Update frequency average and reset counts for every lock. */
+        for curr := range w.LockStateMap {
+            state := w.LockStateMap[curr]
+            state.FreqAvg = ((1 - WEIGHT) * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount))
+            state.FreqCount = 0
+        }
+        /* Reset period start time. */
+        w.PeriodStart = time.Now()
+        // TODO: send stats to master! 
     }
-    state.FreqCount++;
+    /* Update frequency in current period. */
+    lockState.FreqCount++
 }
