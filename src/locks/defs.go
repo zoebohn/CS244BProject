@@ -20,6 +20,7 @@ const SequencerArgKey string = "seq"
 const ClientAddrKey string = "client-addr"
 const LockArrayKey string = "lock-arr"
 const LockArray2Key string = "lock-arr2"
+const FreqArrayKey string = "freq-arr"
 const TransactionIDKey string = "trans"
 const OldGroupKey string = "old-group"
 const NewGroupKey string = "new-group"
@@ -31,6 +32,7 @@ const DisownLocksCommand string = "disown"
 
 /* Worker -> Master RPCs */
 const ReleasedRecalcitrantCommand string = "rel-recal"
+const FrequencyUpdateCommand string = "freq-update"
 
 /* Master responses to RPCs */
 const TransferLockGroupCommand string = "transfer-group"
