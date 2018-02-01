@@ -305,10 +305,16 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) {
     lockState := w.LockStateMap[l]
     /* Check if should enter new period. */
     if (time.Since(w.PeriodStart) >= PERIOD) {
+        /* Account for any periods where not updated. */
+        numPeriodsSkipped := float64(time.Since(w.PeriodStart) / PERIOD)
+        oldAvgWeight := 1 - WEIGHT - (numPeriodsSkipped * WEIGHT)
+        if oldAvgWeight < 0 {
+            oldAvgWeight = 0
+        }
         /* Update frequency average and reset counts for every lock. */
         for curr := range w.LockStateMap {
             state := w.LockStateMap[curr]
-            state.FreqAvg = ((1 - WEIGHT) * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount))
+            state.FreqAvg = (oldAvgWeight * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount))
             state.FreqCount = 0
         }
         /* Reset period start time. */
