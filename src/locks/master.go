@@ -119,6 +119,11 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             l := Lock(args[LockArgKey])
             m.markLockForDeletion(l)
             return nil, nil
+        case FrequencyUpdateCommand:
+            lockArr := string_to_lock_array(args[LockArrayKey])
+            freqArr := string_to_float_array(args[FreqArrayKey])
+            m.updateFrequencies(lockArr, freqArr)
+            return nil, nil
         case TransferLockGroupCommand:
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
             newGroup, err2 := strconv.Atoi(args[NewGroupKey])
@@ -373,6 +378,7 @@ func (m *MasterFSM) deleteLockNotAcquired(l Lock) func() []byte {
     defer m.FsmLock.Unlock()
     replicaGroup := m.LockMap[l]
     delete(m.LockMap, l)
+    delete(m.AvgFreqMap, l)
     m.NumLocksHeld[replicaGroup]--
     f := func() []byte {
         m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
@@ -609,6 +615,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
         replicaGroup := m.LockMap[l]
         m.NumLocksHeld[replicaGroup]--
         delete(m.LockMap, l)
+        delete(m.AvgFreqMap, l)
         f := func() []byte {
             m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
             return nil
@@ -637,4 +644,12 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    }
 
    return sendLockFunc
+}
+
+func (m *MasterFSM) updateFrequencies(lockArr []Lock, freqArr []float64) {
+    m.FsmLock.Lock()
+    defer m.FsmLock.Unlock()
+    for i := range lockArr {
+        m.AvgFreqMap[lockArr[i]] = freqArr[i]
+    }
 }
