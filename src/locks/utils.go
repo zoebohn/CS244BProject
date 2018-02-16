@@ -29,27 +29,27 @@ import(
     return lock_arr
  }
 
-func float_array_to_string(float_arr []float64) string {
+func int_array_to_string(int_arr []int) string {
     var string_form []string
-    for _, f := range float_arr {
-        string_form = append(string_form, strconv.FormatFloat(f, 'E', -1, 64))
+    for _, i := range int_arr {
+        string_form = append(string_form, strconv.Itoa(i))
     }
     str := strings.Join(string_form, ";")
     return str
 }
 
- func string_to_float_array(s string) []float64 {
+ func string_to_int_array(s string) []int {
     if s == "" {
-        return []float64{}
+        return []int{}
     }
     string_arr := strings.Split(s, ";")
-    var float_arr []float64
+    var int_arr []int
     for _, s := range string_arr {
-        f, err := strconv.ParseFloat(s, 64)
+        i, err := strconv.Atoi(s)
         if err != nil {
-            fmt.Println("Error in string to float array: ", err)
+            fmt.Println("Error in string to int array: ", err)
         }
-        float_arr = append(float_arr, f)
+        int_arr = append(int_arr, i)
     }
-    return float_arr
+    return int_arr
  }

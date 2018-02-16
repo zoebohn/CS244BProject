@@ -35,13 +35,9 @@ type lockState struct{
     Disabled		bool
     /* Count number of accesses in last period. */
     FreqCount       int
-    /* Average frequency of accesses, moving average with FreqCount. */
-    FreqAvg         float64
+    /* Frequency count used to be sent to master. */
+    SaveFreqCount         int
 }
-
-var PERIOD time.Duration = 10 * time.Second /* length of period to count number of accesses, ms. */
-
-const WEIGHT float64 = 0.2    /* Weight of new frequency count. */
 
 func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     workers := make([]raft.FSM, n)
@@ -307,24 +303,17 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
     var result func()[]byte = nil
     /* Check if should enter new period. */
     if (time.Since(w.PeriodStart) >= PERIOD) {
-        /* Account for any periods where not updated. */
-        numPeriodsSkipped := float64(time.Since(w.PeriodStart) / PERIOD)
-        oldAvgWeight := 1 - WEIGHT - (numPeriodsSkipped * WEIGHT)
-        if oldAvgWeight < 0 {
-            oldAvgWeight = 0
-        }
-        /* Update frequency average and reset counts for every lock. */
+        /* Send stats to master. */
+        result = w.sendFrequencyStatsToMaster()
+        /* Reset frequency counts to 0. */
         for curr := range w.LockStateMap {
             state := w.LockStateMap[curr]
-            state.FreqAvg = (oldAvgWeight * state.FreqAvg) + ((WEIGHT) * float64(state.FreqCount))
-            fmt.Println("WORKER: freq count = ", state.FreqCount, ", avgFreqCt = ", state.FreqCount)
+            state.SaveFreqCount += state.FreqCount
             state.FreqCount = 0
             w.LockStateMap[curr] = state
         }
         /* Reset period start time. */
         w.PeriodStart = time.Now()
-        /* Send stats to master. */ 
-        result = w.sendFrequencyStatsToMaster()
     }
     /* Update frequency in current period. */
     lockState.FreqCount++
@@ -334,16 +323,20 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
 
 func (w *WorkerFSM) sendFrequencyStatsToMaster() func()[]byte {
     locks := make([]Lock, 0)
-    frequencies := make([]float64, 0)
+    counts := make([]int, 0)
     for l := range w.LockStateMap {
         locks = append(locks, l)
-        frequencies = append(frequencies, w.LockStateMap[l].FreqAvg)
+        counts = append(counts, w.LockStateMap[l].SaveFreqCount)
+        /* Update saved counts to be 0 for next time sending frequencies. */
+        state := w.LockStateMap[l]
+        state.SaveFreqCount = 0
+        w.LockStateMap[l] = state
     }
     f := func() []byte {
         args := make(map[string]string)
         args[FunctionKey] = FrequencyUpdateCommand
         args[LockArrayKey] = lock_array_to_string(locks)
-        args[FreqArrayKey] = float_array_to_string(frequencies)
+        args[CountArrayKey] = int_array_to_string(counts)
         command, json_err := json.Marshal(args)
         if json_err != nil {
             //TODO

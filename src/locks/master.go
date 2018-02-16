@@ -10,6 +10,7 @@ import(
     "strconv"
     "sort"
     "sync"
+    "time"
 )
 
 type MasterFSM struct {
@@ -37,9 +38,20 @@ type MasterFSM struct {
     /* Rebalances in progress */
     RebalancingInProgress map[ReplicaGroupId]bool
     /* Map of lock to average frequency accessed. Maintained with updates from worker. */
-    AvgFreqMap          map[Lock]float64
+    FreqStatsMap          map[Lock]FreqStats
 }
 
+type FreqStats struct {
+    /* Exponentially weighted moving average of frequency of accesses over period. */
+    avgFreq        float64
+    /* Time last updated. */
+    lastUpdate  time.Time
+
+}
+
+var PERIOD time.Duration = 10 * time.Second
+
+const WEIGHT = 0.2
 
 const numClusterServers = 3
 
@@ -62,7 +74,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             RebalanceThreshold: rebalanceThreshold,
             RecalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
-            AvgFreqMap:         make(map[Lock]float64),
+            FreqStatsMap:         make(map[Lock]FreqStats),
         }
     }
     if n <= 0 {
@@ -121,8 +133,8 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
             return nil, nil
         case FrequencyUpdateCommand:
             lockArr := string_to_lock_array(args[LockArrayKey])
-            freqArr := string_to_float_array(args[FreqArrayKey])
-            m.updateFrequencies(lockArr, freqArr)
+            countArr := string_to_int_array(args[CountArrayKey])
+            m.updateFrequencies(lockArr, countArr)
             return nil, nil
         case TransferLockGroupCommand:
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
@@ -178,7 +190,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.RecruitAddrs = snapshotRestored.RecruitAddrs
     m.RebalanceThreshold = snapshotRestored.RebalanceThreshold
     m.RecalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
-    m.AvgFreqMap = snapshotRestored.AvgFreqMap
+    m.FreqStatsMap = snapshotRestored.FreqStatsMap
     m.FsmLock.Unlock()
     return nil
 }
@@ -232,6 +244,7 @@ func (m *MasterFSM) createLock(l Lock) (func() []byte, CreateLockResponse) {
     fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     m.NumLocksHeld[replicaGroup]++
     m.LockMap[l] = replicaGroup
+    m.FreqStatsMap[l] = FreqStats{lastUpdate: time.Now(), avgFreq: 0}
 
     /* Trigger rebalancing if number of locks held by replica group >= rebalance threshold. */
     var rebalanceCallback func() []byte
@@ -378,7 +391,7 @@ func (m *MasterFSM) deleteLockNotAcquired(l Lock) func() []byte {
     defer m.FsmLock.Unlock()
     replicaGroup := m.LockMap[l]
     delete(m.LockMap, l)
-    delete(m.AvgFreqMap, l)
+    delete(m.FreqStatsMap, l)
     m.NumLocksHeld[replicaGroup]--
     f := func() []byte {
         m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
@@ -615,7 +628,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
         replicaGroup := m.LockMap[l]
         m.NumLocksHeld[replicaGroup]--
         delete(m.LockMap, l)
-        delete(m.AvgFreqMap, l)
+        delete(m.FreqStatsMap, l)
         f := func() []byte {
             m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
             return nil
@@ -646,11 +659,23 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    return sendLockFunc
 }
 
-func (m *MasterFSM) updateFrequencies(lockArr []Lock, freqArr []float64) {
+func (m *MasterFSM) updateFrequencies(lockArr []Lock, countArr []int) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
+    currTime := time.Now()
+    fmt.Println("Update freqs")
     for i := range lockArr {
-        fmt.Println("frequency of ", lockArr[i], " is ", freqArr[i])
-        m.AvgFreqMap[lockArr[i]] = freqArr[i]
+        /* Calculate new exponentially weighted moving average. */
+        stats := m.FreqStatsMap[lockArr[i]]
+        numPeriodsElapsed := float64(time.Since(stats.lastUpdate) / PERIOD)
+        newFreq := float64(countArr[i]) / numPeriodsElapsed
+        currAvgFreq := stats.avgFreq
+        for i := 0; i < int(numPeriodsElapsed); i++ {
+            currAvgFreq = (newFreq * WEIGHT * numPeriodsElapsed) + (currAvgFreq * (1 - WEIGHT))
+        }
+        fmt.Println("frequency of ", lockArr[i], " is ", currAvgFreq)
+        newStats := FreqStats{avgFreq: currAvgFreq, lastUpdate: currTime}
+        m.FreqStatsMap[lockArr[i]] = newStats
     }
+    fmt.Println("Returned from update freqs")
 }
