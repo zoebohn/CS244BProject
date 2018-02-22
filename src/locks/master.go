@@ -398,12 +398,15 @@ func (m *MasterFSM) deleteLockNotAcquired(l Lock) func() []byte {
         return nil
     }
     return f
+    // TODO: check if can fully "retire" cluster
 }
 
 func (m* MasterFSM) markLockForDeletion(l Lock) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     m.RecalcitrantDestMap[l] = -1
+    // TODO: call for rebalance here, make rebalance more generic to join or split
+    // if not using a cluster any more, need to make sure don't continue sending locks there (cluster is "retiring")
 }
 
 func (m *MasterFSM) rebalance(replicaGroup ReplicaGroupId) func() []byte {
