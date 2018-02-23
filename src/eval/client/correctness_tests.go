@@ -383,7 +383,7 @@ func test_delete (lc *locks.LockClient) bool {
         return false
     }
     /* Wait for delete to propagate. */
-    time.Sleep(3*time.Second)
+    time.Sleep(1*time.Second)
     _, acq_err1 := lc.AcquireLock(l)
     if acq_err1 == nil {
         fmt.Println("Acquired lock after deleting")
@@ -411,7 +411,7 @@ func test_delete (lc *locks.LockClient) bool {
         return false
     }
     /* Wait for delete to propagate. */
-    time.Sleep(3*time.Second)
+    time.Sleep(1*time.Second)
     _, acq_err3 := lc.AcquireLock(l)
     if acq_err3 == nil {
         fmt.Println("Acquired lock after deleting")
