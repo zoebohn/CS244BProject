@@ -27,7 +27,7 @@ const NewGroupKey string = "new-group"
 
 /* Master -> Worker RPCs */
 const ClaimLocksCommand string = "add-lock"
-const RebalanceCommand string = "rebalance"
+const TransferCommand string = "transfer"
 const DisownLocksCommand string = "disown"
 
 /* Worker -> Master RPCs */
@@ -80,7 +80,7 @@ type ReleaseLockResponse struct {
     ErrMessage string
 }
 
-type RebalanceResponse struct {
+type TransferResponse struct {
     RecalcitrantLocks map[Lock]int
 }
 
