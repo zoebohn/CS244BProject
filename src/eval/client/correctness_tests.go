@@ -40,6 +40,7 @@ func main() {
     output_test(test_creating_domains(lc),"create_domain")
     output_test(test_acquire_nonexistant_lock(lc), "nonexistant_lock")
     output_test(test_delete(lc), "delete")
+    output_test(test_join(lc), "join")
     /* Second client */
     trans2, err2 := raft.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, nil)
     if err2 != nil {
@@ -420,6 +421,99 @@ func test_delete (lc *locks.LockClient) bool {
     return true
 }
 
+func test_join (lc *locks.LockClient) bool {
+    err1 := lc.CreateDomain(locks.Domain("/join"))
+    if err1 != nil {
+        fmt.Println("error with creating domain join")
+        fmt.Println(err1)
+        return false 
+    }
+    create_err1 := lc.CreateLock(locks.Lock("/join/1"))
+    if create_err1 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err2 := lc.CreateLock(locks.Lock("/join/2"))
+    if create_err2 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err3 := lc.CreateLock(locks.Lock("/join/3"))
+    if create_err3 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err4 := lc.CreateLock(locks.Lock("/join/4"))
+    if create_err4 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err5 := lc.CreateLock(locks.Lock("/join/5"))
+    if create_err5 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err6 := lc.CreateLock(locks.Lock("/join/6"))
+    if create_err6 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err7 := lc.CreateLock(locks.Lock("/join/7"))
+    if create_err7 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+    create_err8 := lc.CreateLock(locks.Lock("/join/8"))
+    if create_err8 != nil {
+        fmt.Println("error creating lock")
+        return false
+    }
+
+
+    delete_err1 := lc.DeleteLock(locks.Lock("/join/1"))
+    if delete_err1 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err2 := lc.DeleteLock(locks.Lock("/join/2"))
+    if delete_err2 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err3 := lc.DeleteLock(locks.Lock("/join/3"))
+    if delete_err3 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err4 := lc.DeleteLock(locks.Lock("/join/4"))
+    if delete_err4 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err5 := lc.DeleteLock(locks.Lock("/join/5"))
+    if delete_err5 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err6 := lc.DeleteLock(locks.Lock("/join/6"))
+    if delete_err6 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err7 := lc.DeleteLock(locks.Lock("/join/7"))
+    if delete_err7 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    delete_err8 := lc.DeleteLock(locks.Lock("/join/8"))
+    if delete_err8 != nil {
+        fmt.Println("error deleting lock")
+        return false
+    }
+    return true
+}
+
+
 /* Two clients race to create a domain */
 func test_race_domain(lc1 *locks.LockClient, lc2 *locks.LockClient) bool {
     domain := locks.Domain("/firsty")
@@ -537,3 +631,5 @@ func test_client_fails_and_releases(trans *raft.NetworkTransport) bool {
     }
     return success
 }
+
+
