@@ -28,7 +28,7 @@ type MasterFSM struct {
     /* Location of servers in master cluster. */
     MasterCluster       []raft.ServerAddress
     /* Address of worker clusters to recruit. */
-    RecruitAddrs        [][]raft.ServerAddress
+    RecruitAddrs        []RecruitInfo
     /* Whether to recruit clusters locally - true for testing. */
     RecruitClustersLocally  bool
     /* Threshold at which to split. */
@@ -53,6 +53,11 @@ type FreqStats struct {
 
 }
 
+type RecruitInfo struct {
+    addrs                   []raft.ServerAddress
+    shouldRecruitLocally    bool
+}
+
 var PERIOD time.Duration = 10 * time.Second
 
 const WEIGHT = 0.2
@@ -75,7 +80,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             NumLocksHeld:       make(map[ReplicaGroupId]int),
             NextReplicaGroupId: 0,
             MasterCluster:      clusterAddrs,
-            RecruitAddrs:       recruitList,
+            RecruitAddrs:       make([]RecruitInfo, 0),
             RecruitClustersLocally: recruitClustersLocally,
             MaxThreshold:       maxThreshold,
             MinThreshold:       minThreshold,
@@ -83,6 +88,10 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
             LockFreqStatsMap:         make(map[Lock]FreqStats),
             GroupFreqStatsMap:      make(map[ReplicaGroupId]FreqStats),
+        }
+        for _,addrs := range recruitList {
+            elem := RecruitInfo{addrs: addrs, shouldRecruitLocally: recruitClustersLocally}
+            masters[i].RecruitAddrs = append(masters[i].RecruitAddrs, elem)
         }
     }
     if n <= 0 {
@@ -442,7 +451,8 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) func() []byte {
     locksToMove := m.getLocksToSplit(replicaGroup)
     /* Update state in preparation for adding new cluster. */
     fmt.Println("next replica group id: ", m.NextReplicaGroupId)
-    workerAddrs := m.RecruitAddrs[m.NextReplicaGroupId]
+    workerAddrs := m.RecruitAddrs[m.NextReplicaGroupId].addrs
+    shouldMakeNewCluster := m.RecruitAddrs[m.NextReplicaGroupId].shouldRecruitLocally
     newReplicaGroup := m.NextReplicaGroupId
     m.ClusterMap[newReplicaGroup] = workerAddrs
     m.NumLocksHeld[newReplicaGroup] = 0
@@ -458,7 +468,7 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) func() []byte {
         }
 
         /* Recruit new replica group to store rebalanced locks. */
-        if (m.RecruitClustersLocally) {
+        if (shouldMakeNewCluster) {
             MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.MasterCluster), workerAddrs)
         }
 
@@ -493,7 +503,7 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) func() []byte {
 func (m *MasterFSM) getWorkerForJoin(replicaGroup ReplicaGroupId) ReplicaGroupId {
     replicaGroups := m.DomainPlacementMap[Domain("/")]
     for i, group := range(replicaGroups) {
-        if group == replicaGroup {
+        if group == replicaGroup || m.RebalancingInProgress[group] {
             if i+1 < len(replicaGroups) {
                 replicaGroups = append(replicaGroups[:i], replicaGroups[i+1:]...)
             } else {
@@ -577,6 +587,17 @@ func (m *MasterFSM) retireWorker(replicaGroup ReplicaGroupId) func() []byte {
         }
 
     return rebalancing_func
+}
+
+func (m *MasterFSM) checkForFullyRetiredWorker(replicaGroup ReplicaGroupId) {
+    if m.NumLocksHeld[replicaGroup] == 0 {
+        serverAddrs := m.ClusterMap[replicaGroup]
+        // leave old cluster map entry to allow for some cleanup
+        //delete(m.NumLocksHeld, replicaGroup)
+        //delete(m.RebalancingInProgress, replicaGroup)
+        //delete(m.GroupFreqStatsMap, replicaGroup)
+        m.RecruitAddrs = append(m.RecruitAddrs, RecruitInfo{addrs: serverAddrs, shouldRecruitLocally: false})
+    }
 }
 
 
@@ -737,6 +758,7 @@ func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, ne
     m.LockMap[l] = newGroupId
     m.NumLocksHeld[newGroupId]++
     m.NumLocksHeld[oldGroupId]--
+    m.checkForFullyRetiredWorker(oldGroupId)
 
     /* Ask worker to disown lock now that transferred. */
     f := func() []byte {
@@ -786,16 +808,17 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) func() []byte {
    newReplicaGroup := m.RecalcitrantDestMap[l]
    delete(m.RecalcitrantDestMap, l)
    /* Check if should delete lock. */
-   if newReplicaGroup == -1 {
+   if newReplicaGroup == NO_WORKER {
         replicaGroup := m.LockMap[l]
         m.NumLocksHeld[replicaGroup]--
+        m.checkForFullyRetiredWorker(replicaGroup)
         delete(m.LockMap, l)
         delete(m.LockFreqStatsMap, l)
         f := func() []byte {
             m.askWorkerToDisownLocks(replicaGroup, []Lock{l})
             return nil
         }
-        return f 
+        return f
    }
    //m.FsmLock.RUnlock()
 
