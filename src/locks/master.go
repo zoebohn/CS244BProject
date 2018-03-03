@@ -458,6 +458,65 @@ func (m* MasterFSM) markLockForDeletion(l Lock) {
 }
 
 func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) []func() [][]byte {
+    locksToMove := m.getLocksToSplit(replicaGroup)
+    redistributeCallbacks := m.tryRedistributeLocks(replicaGroup, locksToMove)
+    if redistributeCallbacks != nil {
+        return redistributeCallbacks
+    }
+    return m.splitToNewWorker(replicaGroup)
+}
+
+func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
+    // TODO: in future, split between multiple clusters, don't just dump on 1 random cluster
+    newReplicaGroup := m.getWorkerForJoin(replicaGroup)
+    if newReplicaGroup == NO_WORKER {
+        /* abort if no other worker to join with. */
+        return nil 
+    }
+    m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup)
+
+    fmt.Println("****RETIRING WORKER: ", replicaGroup)
+    m.RebalancingInProgress[replicaGroup] = true
+
+
+    rebalancing_func := func() [][]byte {
+        /* Initiate rebalancing and find recalcitrant locks. */
+        recalcitrantLocks := m.initiateTransfer(replicaGroup, locksToMove)
+
+        recalcitrantLocksList := make([]Lock, 0)
+        for l := range(recalcitrantLocks) {
+            recalcitrantLocksList = append(recalcitrantLocksList, l)
+        }
+
+        /* Using set of recalcitrant locks, determine locks that can be moved. */
+        locksCanMove := make([]Lock, 0)
+        for _, currLock := range(locksToMove) {
+            if _, ok := recalcitrantLocks[currLock]; !ok {
+                locksCanMove = append(locksCanMove, currLock)
+            }
+        }
+
+        /* Ask new replica group to claim set of locks that can be moved. */
+        m.askWorkerToClaimLocks(newReplicaGroup, locksCanMove)
+
+        /* Tell master to transfer ownership of locks from old group to new group. */
+        args := make(map[string]string)
+        args[FunctionKey] = TransferLockGroupCommand
+        args[LockArrayKey] = lock_array_to_string(locksCanMove)
+        args[LockArray2Key] = lock_array_to_string(recalcitrantLocksList)
+        args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
+        args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
+        command, json_err := json.Marshal(args)
+        if json_err != nil {
+            fmt.Println("MASTER: json error")
+        }
+        return [][]byte{command}
+        }
+
+    return []func() [][]byte{rebalancing_func}
+}
+
+func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId) []func() [][]byte {
     fmt.Println("MASTER: SPLITTING LOAD")
     /* Split locks managed by worker into 2. */
     locksToMove := m.getLocksToSplit(replicaGroup)
@@ -551,54 +610,11 @@ func (m *MasterFSM) patchReferencesToOldWorker(oldReplicaGroup ReplicaGroupId, n
 func (m *MasterFSM) retireWorker(replicaGroup ReplicaGroupId) []func() [][]byte {
     fmt.Println("*** checking to retire worker")
     locksToMove := m.getLocksToConsolidate(replicaGroup)
-
-    // TODO: in future, split between multiple clusters, don't just dump on 1 random cluster
-    newReplicaGroup := m.getWorkerForJoin(replicaGroup)
-    if newReplicaGroup == NO_WORKER {
-        /* abort if no other worker to join with. */
-        return []func()[][]byte{} 
+    retireCallbacks := m.tryRedistributeLocks(replicaGroup, locksToMove)
+    if retireCallbacks != nil {
+        return retireCallbacks
     }
-    m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup)
-
-    fmt.Println("****RETIRING WORKER: ", replicaGroup)
-    m.RebalancingInProgress[replicaGroup] = true
-
-
-    rebalancing_func := func() [][]byte {
-        /* Initiate rebalancing and find recalcitrant locks. */
-        recalcitrantLocks := m.initiateTransfer(replicaGroup, locksToMove)
-
-        recalcitrantLocksList := make([]Lock, 0)
-        for l := range(recalcitrantLocks) {
-            recalcitrantLocksList = append(recalcitrantLocksList, l)
-        }
-
-        /* Using set of recalcitrant locks, determine locks that can be moved. */
-        locksCanMove := make([]Lock, 0)
-        for _, currLock := range(locksToMove) {
-            if _, ok := recalcitrantLocks[currLock]; !ok {
-                locksCanMove = append(locksCanMove, currLock)
-            }
-        }
-
-        /* Ask new replica group to claim set of locks that can be moved. */
-        m.askWorkerToClaimLocks(newReplicaGroup, locksCanMove)
-
-        /* Tell master to transfer ownership of locks from old group to new group. */
-        args := make(map[string]string)
-        args[FunctionKey] = TransferLockGroupCommand
-        args[LockArrayKey] = lock_array_to_string(locksCanMove)
-        args[LockArray2Key] = lock_array_to_string(recalcitrantLocksList)
-        args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
-        args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
-        command, json_err := json.Marshal(args)
-        if json_err != nil {
-            fmt.Println("MASTER: json error")
-        }
-        return [][]byte{command}
-        }
-
-    return []func() [][]byte{rebalancing_func}
+    return []func() [][]byte{}
 }
 
 func (m *MasterFSM) checkForFullyRetiredWorker(replicaGroup ReplicaGroupId) {
