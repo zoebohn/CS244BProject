@@ -32,9 +32,11 @@ type MasterFSM struct {
     /* Whether to recruit clusters locally - true for testing. */
     RecruitClustersLocally  bool
     /* Threshold at which to split. */
-    MaxThreshold    int
+    MaxFreq         float64
     /* Threshold at which to join. */
-    MinThreshold    int
+    MinFreq         float64
+    /* Max number of inactivi periods before join. */
+    MaxInactivePeriods  int
     /* Eventual destinations of recalcitrant locks. */
     RecalcitrantDestMap map[Lock]ReplicaGroupId
     /* Rebalances in progress */
@@ -58,7 +60,7 @@ type RecruitInfo struct {
     shouldRecruitLocally    bool
 }
 
-var PERIOD time.Duration = 10 * time.Second
+var PERIOD time.Duration = 200 * time.Millisecond
 
 const WEIGHT = 0.2
 
@@ -70,7 +72,7 @@ type MasterSnapshot struct{
     json    []byte
 }
 
-func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxThreshold int, minThreshold int, recruitClustersLocally bool) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxFreq float64, minFreq float64, maxInactivePeriods int, recruitClustersLocally bool) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -82,8 +84,9 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             MasterCluster:      clusterAddrs,
             RecruitAddrs:       make([]RecruitInfo, 0),
             RecruitClustersLocally: recruitClustersLocally,
-            MaxThreshold:       maxThreshold,
-            MinThreshold:       minThreshold,
+            MaxFreq:            maxFreq,
+            MinFreq:            minFreq,
+            MaxInactivePeriods: maxInactivePeriods,
             RecalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
             LockFreqStatsMap:         make(map[Lock]FreqStats),
@@ -205,8 +208,9 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.NextReplicaGroupId = snapshotRestored.NextReplicaGroupId
     m.MasterCluster = snapshotRestored.MasterCluster
     m.RecruitAddrs = snapshotRestored.RecruitAddrs
-    m.MaxThreshold = snapshotRestored.MaxThreshold
-    m.MinThreshold = snapshotRestored.MinThreshold
+    m.MaxFreq = snapshotRestored.MaxFreq
+    m.MinFreq = snapshotRestored.MinFreq
+    m.MaxInactivePeriods = snapshotRestored.MaxInactivePeriods
     m.RecalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
     m.LockFreqStatsMap = snapshotRestored.LockFreqStatsMap
     m.GroupFreqStatsMap = snapshotRestored.GroupFreqStatsMap
@@ -641,7 +645,7 @@ func (m *MasterFSM) findOverworkedWorker() ReplicaGroupId {
     for replicaGroup := range m.NumLocksHeld/*m.GroupFreqStatsMap*/ {
         // TODO: replace with real tracking
         fmt.Println("check rep group ",  replicaGroup)
-        if m.NumLocksHeld[replicaGroup] >= m.MaxThreshold {
+        if m.GroupFreqStatsMap[replicaGroup].avgFreq >= m.MaxFreq {
             fmt.Println("overthreshold but rebalancing")
             if _, ok := m.RebalancingInProgress[replicaGroup]; !ok {
                 fmt.Println("found overworked: ", replicaGroup)
@@ -655,7 +659,7 @@ func (m *MasterFSM) findOverworkedWorker() ReplicaGroupId {
 func (m *MasterFSM) findUnderworkedWorker() ReplicaGroupId {
     for replicaGroup := range m.NumLocksHeld/*m.GroupFreqStatsMap*/ {
         // TODO: replace with real tracking
-        if m.NumLocksHeld[replicaGroup] <= m.MinThreshold {
+        if m.GroupFreqStatsMap[replicaGroup].avgFreq <= m.MinFreq && time.Since(m.GroupFreqStatsMap[replicaGroup].lastUpdate) / PERIOD >= time.Duration(m.MaxInactivePeriods) {
             fmt.Println("num locks held = ", m.NumLocksHeld[replicaGroup])
             if _,ok := m.RebalancingInProgress[replicaGroup]; !ok {
                 fmt.Println("reporting underworked at ", replicaGroup)
@@ -789,7 +793,7 @@ func (m *MasterFSM) getLocksToSplit(replicaGroup ReplicaGroupId) ([]Lock) {
 
     splitLocks := make([]Lock, 0)
     for i := range(locks) {
-        if i >= m.MaxThreshold / 2 {
+        if i >= len(locks) / 2 {
             return splitLocks
         }
         splitLocks = append(splitLocks, Lock(locks[i]))
