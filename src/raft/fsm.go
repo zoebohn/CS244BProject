@@ -15,7 +15,7 @@ type FSM interface {
 	// It returns a value which will be made available in the
 	// ApplyFuture returned by Raft.Apply method if that
 	// method was called on the same Raft node as the FSM.
-	Apply(*Log) (interface{}, func() []byte)
+	Apply(*Log) (interface{}, []func() [][]byte)
 
 	// Snapshot is used to support log compaction. This call should
 	// return an FSMSnapshot which can be used to save a point-in-time
@@ -52,7 +52,7 @@ func (r *Raft) runFSM() {
 	commit := func(req *commitTuple) {
 		// Apply the log if a command
         var resp interface{}
-        var callback func() []byte
+        var callback []func() [][]byte
 		if req.log.Type == LogCommand {
 			start := time.Now()
             resp, callback = r.fsm.Apply(req.log)

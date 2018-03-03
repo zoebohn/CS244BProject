@@ -51,7 +51,7 @@ func CreateWorkers(n int, masterCluster []raft.ServerAddress) ([]raft.FSM) {
     return workers
 }
 
-func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) { 
+func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, []func() [][]byte) { 
     /* Interpret log to find command. Call appropriate function. */
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
@@ -63,11 +63,11 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
         case ClaimLocksCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             w.claimLocks(lock_arr)
-            return nil, nil 
+            return nil, []func()[][]byte{} 
         case DisownLocksCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             w.disownLocks(lock_arr)
-            return nil, nil
+            return nil, []func()[][]byte{}
         case AcquireLockCommand:
             l := Lock(args[LockArgKey])
             clientAddr := raft.ServerAddress(args[ClientAddrKey])
@@ -86,18 +86,18 @@ func (w *WorkerFSM) Apply(log *raft.Log) (interface{}, func() []byte) {
                 return ValidateLockResponse{false, ErrInvalidRequest}, nil
             }
             response := w.validateLock(l, Sequencer(s))
-            return response, nil
+            return response, []func()[][]byte{}
         case TransferCommand:
             lock_arr := string_to_lock_array(args[LockArrayKey])
             response := w.handleTransferRequest(lock_arr)
-            return response, nil
+            return response, []func()[][]byte{}
         case ReleaseForClientCommand:
             c := raft.ServerAddress(args[ClientAddrKey])
             w.releaseForClient(c)
-            return nil, nil
+            return nil, []func()[][]byte{} 
     }
 
-    return nil, nil
+    return nil, []func()[][]byte{}
 }
 
 func (w *WorkerFSM) Restore(i io.ReadCloser) error {
@@ -156,45 +156,45 @@ func convertFromJSONWorker(byte_arr []byte) (WorkerFSM, error) {
 }
 
 
-func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse, func() []byte) {
+func (w *WorkerFSM) tryAcquireLock(l Lock, client raft.ServerAddress) (AcquireLockResponse, []func() [][]byte) {
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
-    callback := w.updateFreqForOneOp(l)
+    callbacks := w.updateFreqForOneOp(l)
     fmt.Println("WORKER: trying to acquire lock ", string(l))
      if _, ok := w.LockStateMap[l]; !ok {
          fmt.Println("WORKER: error lock doesn't exist")
-         return AcquireLockResponse{-1, ErrLockDoesntExist}, callback
+         return AcquireLockResponse{-1, ErrLockDoesntExist}, callbacks
      }
      state := w.LockStateMap[l]
      if state.Held && state.Client == client {
-        return AcquireLockResponse{w.SequencerMap[l], ""}, callback
+        return AcquireLockResponse{w.SequencerMap[l], ""}, callbacks
      }
      if state.Held || state.Disabled {
          fmt.Println("WORKER: error lock held or disabled")
-         return AcquireLockResponse{-1, ErrLockHeld}, callback
+         return AcquireLockResponse{-1, ErrLockHeld}, callbacks
      }
      state.Held = true
      state.Client = client
      w.LockStateMap[l] = state
      w.SequencerMap[l] += 1
      response := AcquireLockResponse{w.SequencerMap[l], ""}
-     return response, callback
+     return response, callbacks
 }
 
-func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, func() []byte) {
+func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockResponse, []func() [][]byte) {
     fmt.Println("WORKER: releasing lock ", string(l))
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
-    callback := w.updateFreqForOneOp(l)
+    callbacks := w.updateFreqForOneOp(l)
     if _, ok := w.LockStateMap[l]; !ok {
-        return ReleaseLockResponse{ErrLockDoesntExist}, callback
+        return ReleaseLockResponse{ErrLockDoesntExist}, callbacks
     }
     state := w.LockStateMap[l]
     if !state.Held {
-        return ReleaseLockResponse{ErrLockNotHeld}, callback
+        return ReleaseLockResponse{ErrLockNotHeld}, callbacks
     }
     if state.Client != client {
-        return ReleaseLockResponse{ErrBadClientRelease}, callback
+        return ReleaseLockResponse{ErrBadClientRelease}, callbacks
     }
     state.Client = ""
     state.Held = false
@@ -209,7 +209,7 @@ func (w *WorkerFSM) releaseLock(l Lock, client raft.ServerAddress) (ReleaseLockR
         return ReleaseLockResponse{""}, w.generateRecalcitrantReleaseAlert(l)
     }
 
-    return ReleaseLockResponse{""}, callback
+    return ReleaseLockResponse{""}, callbacks
 }
 
 func (w *WorkerFSM) validateLock(l Lock, s Sequencer) ValidateLockResponse {
@@ -262,10 +262,10 @@ func (w *WorkerFSM) handleTransferRequest(lock_arr []Lock) (TransferResponse) {
     return TransferResponse{recalcitrantLocks}
 }
 
-func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
+func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) []func()[][]byte {
     /* Update map */
     /* Send message to master that was released */
-    f := func() []byte {
+    f := func() [][]byte {
         args := make(map[string]string)
         args[FunctionKey] = ReleasedRecalcitrantCommand
         args[LockArgKey] = string(l)
@@ -279,9 +279,9 @@ func (w *WorkerFSM) generateRecalcitrantReleaseAlert(l Lock) func()[]byte {
         if send_err != nil {
             fmt.Println("WORKER: error while sending recalcitrant release ")
         }
-        return nil
+        return [][]byte{}
     }
-    return f
+    return []func()[][]byte{f}
 }
 
 func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
@@ -299,11 +299,11 @@ func (w *WorkerFSM) releaseForClient(client raft.ServerAddress) {
 }
 
 /* Assumes FSM already locked. */
-func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
+func (w *WorkerFSM) updateFreqForOneOp(l Lock) []func()[][]byte {
     if _,ok := w.LockStateMap[l]; !ok {
         return nil
     }
-    var result func()[]byte = nil
+    result := []func()[][]byte{}
     /* Check if should enter new period. */
     if (time.Since(w.PeriodStart) >= PERIOD) {
         /* Send stats to master. */
@@ -319,10 +319,11 @@ func (w *WorkerFSM) updateFreqForOneOp(l Lock) func()[]byte {
         }
         /* Reset period start time. */
         w.PeriodStart = time.Now()
-        result = func()[]byte {
+        f := func()[][]byte {
             w.sendFrequencyStatsToMaster(locks, counts)
-            return nil
+            return [][]byte{}
         }
+        result = append(result, f)
     }
     /* Update frequency in current period. */
     lState := w.LockStateMap[l]

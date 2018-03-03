@@ -36,7 +36,7 @@ type ApplyFuture interface {
 	// by the FSM.Apply method. This must not be called
 	// until after the Error method has returned.
 	Response() interface{}
-    Callback() func() []byte
+    Callback() []func() [][]byte
 }
 
 // ConfigurationFuture is used for GetConfiguration and can return the
@@ -76,7 +76,7 @@ func (e errorFuture) Index() uint64 {
 	return 0
 }
 
-func (e errorFuture) Callback() func() []byte {
+func (e errorFuture) Callback() []func() [][]byte {
     return nil
 }
 
@@ -142,7 +142,7 @@ type logFuture struct {
 	log      Log
 	response interface{}
 	dispatch time.Time
-    callback func() []byte
+    callback []func() [][]byte
 }
 
 func (l *logFuture) Response() interface{} {
@@ -153,7 +153,7 @@ func (l *logFuture) Index() uint64 {
 	return l.log.Index
 }
 
-func (l *logFuture) Callback() func() []byte {
+func (l *logFuture) Callback() []func() [][]byte {
     return l.callback
 }
 
@@ -284,7 +284,7 @@ type appendFuture struct {
 	start time.Time
 	args  *AppendEntriesRequest
 	resp  *AppendEntriesResponse
-    callback func() []byte
+    callback []func() [][]byte
 }
 
 func (a *appendFuture) Start() time.Time {
@@ -299,6 +299,6 @@ func (a *appendFuture) Response() *AppendEntriesResponse {
 	return a.resp
 }
 
-func (a *appendFuture) Callback() func() []byte {
+func (a *appendFuture) Callback() []func() [][]byte {
     return a.callback
 }

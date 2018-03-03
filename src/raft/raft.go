@@ -1416,15 +1416,18 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
         resp.Success = false
     }
     /* If callback, make leader execute callback */
-    var nextCommand []byte
-    nextCommand = nil
-    if f.Callback() != nil {
-        nextCommand = f.Callback()()
+    var nextCommands [][]byte
+    callbacks := f.Callback()
+    for _,callback := range callbacks {
+        commands := callback()
+        for _, command := range commands {
+            nextCommands = append(nextCommands, command)
+        }
     }
     data, _:= json.Marshal(f.Response())
     resp.ResponseData = data
     resp.Success = true
-    if nextCommand != nil {
+    for _,nextCommand := range nextCommands {
         r.applyCommand(nextCommand, resp, rpcErr)
     }
 }
