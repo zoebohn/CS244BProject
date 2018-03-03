@@ -463,7 +463,7 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) []func() [][]byte {
     if redistributeCallbacks != nil {
         return redistributeCallbacks
     }
-    return m.splitToNewWorker(replicaGroup)
+    return m.splitToNewWorker(replicaGroup, locksToMove)
 }
 
 func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
@@ -474,7 +474,7 @@ func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMov
         /* abort if no other worker to join with. */
         return nil 
     }
-    m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup)
+    m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup, locksToMove)
 
     fmt.Println("redistributing locks for: ", replicaGroup)
     m.RebalancingInProgress[replicaGroup] = true
@@ -517,10 +517,8 @@ func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMov
     return []func() [][]byte{rebalancing_func}
 }
 
-func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId) []func() [][]byte {
+func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
     fmt.Println("MASTER: SPLITTING LOAD")
-    /* Split locks managed by worker into 2. */
-    locksToMove := m.getLocksToSplit(replicaGroup)
     /* Update state in preparation for adding new cluster. */
     fmt.Println("next replica group id: ", m.NextReplicaGroupId)
     workerAddrs := m.RecruitAddrs[m.NextReplicaGroupId].addrs
@@ -600,21 +598,56 @@ func (m *MasterFSM) getWorkerToTakeLocks(locksToMove []Lock, replicaGroup Replic
     return newReplicaGroup
 }
 
-func (m *MasterFSM) patchReferencesToOldWorker(oldReplicaGroup ReplicaGroupId, newReplicaGroup ReplicaGroupId) {
+func (m *MasterFSM) patchReferencesToOldWorker(oldReplicaGroup ReplicaGroupId, newReplicaGroup ReplicaGroupId, locksToMove []Lock) {
+    remainingDomains := make(map[Domain]bool)
+    locksToMoveMap := make(map[Lock]bool)
+    for _,l := range locksToMove {
+        locksToMoveMap[l] = true
+    }
+    for l := range m.LockMap {
+        if m.LockMap[l] == oldReplicaGroup && !locksToMoveMap[l] {
+            d := getParentDomain(string(l))
+            remainingDomains[d] = true
+        }
+    }
+    // Update domain placement map.
     for domain, groups := range(m.DomainPlacementMap) {
-        for i := range(groups) {
-            if groups[i] == oldReplicaGroup {
-                groups[i] = newReplicaGroup
+        if remainingDomains[domain] {
+            continue
+        }
+        shouldAppend := false
+        for i := 0; i < len(groups); i++ {
+            fmt.Println("i=", i, ", groups=", groups)
+            if groups[i] == oldReplicaGroup || groups[i] == newReplicaGroup {
+                if i == len(groups) - 1 {
+                    groups = groups[:i]
+                } else {
+                    groups = append(groups[:i], groups[i+1:]...)
+                }
+                i++
+                shouldAppend = true
             }
         }
-        m.DomainPlacementMap[domain] = groups
+        if shouldAppend {
+            groups = append(groups, newReplicaGroup)
+            m.DomainPlacementMap[domain] = groups
+        }
     }
-
+    // Update recalcitrant lock destination map. 
     for l, dest := range(m.RecalcitrantDestMap) {
-        if dest == oldReplicaGroup {
+        if dest == oldReplicaGroup && !remainingDomains[getParentDomain(string(l))] {
             m.RecalcitrantDestMap[l] = newReplicaGroup
         }
     }
+    // Update group freq stats map
+    newGroupFreq := m.GroupFreqStatsMap[newReplicaGroup]
+    oldGroupFreq := m.GroupFreqStatsMap[oldReplicaGroup]
+    for _,l := range locksToMove {
+        newGroupFreq.avgFreq += m.LockFreqStatsMap[l].avgFreq
+        oldGroupFreq.avgFreq -= m.LockFreqStatsMap[l].avgFreq
+    }
+    m.GroupFreqStatsMap[newReplicaGroup] = newGroupFreq
+    m.GroupFreqStatsMap[oldReplicaGroup] = oldGroupFreq
 }
 
 func (m *MasterFSM) retireWorker(replicaGroup ReplicaGroupId) []func() [][]byte {
