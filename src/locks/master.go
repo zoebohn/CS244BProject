@@ -468,14 +468,15 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) []func() [][]byte {
 
 func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
     // TODO: in future, split between multiple clusters, don't just dump on 1 random cluster
-    newReplicaGroup := m.getWorkerForJoin(replicaGroup)
+
+    newReplicaGroup := m.getWorkerToTakeLocks(locksToMove, replicaGroup)
     if newReplicaGroup == NO_WORKER {
         /* abort if no other worker to join with. */
         return nil 
     }
     m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup)
 
-    fmt.Println("****RETIRING WORKER: ", replicaGroup)
+    fmt.Println("redistributing locks for: ", replicaGroup)
     m.RebalancingInProgress[replicaGroup] = true
 
 
@@ -571,22 +572,31 @@ func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId) []func() [][]b
     return []func() [][]byte{rebalancing_func}
 }
 
-func (m *MasterFSM) getWorkerForJoin(replicaGroup ReplicaGroupId) ReplicaGroupId {
-    replicaGroups := m.DomainPlacementMap[Domain("/")]
-    for i, group := range(replicaGroups) {
-        if group == replicaGroup || m.RebalancingInProgress[group] {
-            if i+1 < len(replicaGroups) {
-                replicaGroups = append(replicaGroups[:i], replicaGroups[i+1:]...)
-            } else {
-                replicaGroups = replicaGroups[:i]
+// can return NO_WORKER if not a good candidate
+func (m *MasterFSM) getWorkerToTakeLocks(locksToMove []Lock, replicaGroup ReplicaGroupId) ReplicaGroupId {
+    totFreq := 0.0
+    for _, l := range locksToMove {
+        totFreq += m.LockFreqStatsMap[l].avgFreq
+    }
+    candidates := make(map[ReplicaGroupId]bool)
+    for _,l := range locksToMove {
+        d := getParentDomain(string(l))
+        domainGroups := m.DomainPlacementMap[d]
+        for _, domainGroup := range domainGroups {
+            if domainGroup != replicaGroup && !m.RebalancingInProgress[domainGroup] && (m.GroupFreqStatsMap[domainGroup].avgFreq + totFreq) < m.MaxFreq{
+                candidates[domainGroup] = true
             }
-            break
         }
     }
-    newReplicaGroup,_ := m.choosePlacement(replicaGroups)
-    if newReplicaGroup == NO_WORKER {
-        fmt.Println("Can't join because no other replica group")
+    candidateList := make([]ReplicaGroupId, 0)
+    for candidate := range candidates {
+        candidateList = append(candidateList, candidate)
     }
+    if len(candidateList) == 0 {
+        fmt.Println("No viable worker to transfer locks to.")
+        return NO_WORKER
+    }
+    newReplicaGroup,_ := m.choosePlacement(candidateList)
     return newReplicaGroup
 }
 
@@ -612,6 +622,7 @@ func (m *MasterFSM) retireWorker(replicaGroup ReplicaGroupId) []func() [][]byte 
     locksToMove := m.getLocksToConsolidate(replicaGroup)
     retireCallbacks := m.tryRedistributeLocks(replicaGroup, locksToMove)
     if retireCallbacks != nil {
+        fmt.Println("****RETIRING WORKER: ", replicaGroup)
         return retireCallbacks
     }
     return []func() [][]byte{}
