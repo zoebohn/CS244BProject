@@ -35,6 +35,8 @@ type MasterFSM struct {
     MaxFreq         float64
     /* Threshold at which to join. */
     MinFreq         float64
+    /* Ideal frequency of accesses at worker cluster. */
+    IdealFreq       float64
     /* Max number of inactivi periods before join. */
     MaxInactivePeriods  int
     /* Eventual destinations of recalcitrant locks. */
@@ -72,7 +74,7 @@ type MasterSnapshot struct{
     json    []byte
 }
 
-func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxFreq float64, minFreq float64, maxInactivePeriods int, recruitClustersLocally bool) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxFreq float64, minFreq float64, idealFreq float64, maxInactivePeriods int, recruitClustersLocally bool) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -86,6 +88,7 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             RecruitClustersLocally: recruitClustersLocally,
             MaxFreq:            maxFreq,
             MinFreq:            minFreq,
+            IdealFreq:          idealFreq,
             MaxInactivePeriods: maxInactivePeriods,
             RecalcitrantDestMap: make(map[Lock]ReplicaGroupId),
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
@@ -210,6 +213,7 @@ func (m *MasterFSM) Restore(i io.ReadCloser) error {
     m.RecruitAddrs = snapshotRestored.RecruitAddrs
     m.MaxFreq = snapshotRestored.MaxFreq
     m.MinFreq = snapshotRestored.MinFreq
+    m.IdealFreq = snapshotRestored.IdealFreq
     m.MaxInactivePeriods = snapshotRestored.MaxInactivePeriods
     m.RecalcitrantDestMap = snapshotRestored.RecalcitrantDestMap
     m.LockFreqStatsMap = snapshotRestored.LockFreqStatsMap
@@ -457,11 +461,12 @@ func (m* MasterFSM) markLockForDeletion(l Lock) {
 }
 
 func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) []func() [][]byte {
-    locksToMove := m.getLocksToSplit(replicaGroup)
+    locksToMove := m.getLocksToShedLoadToIdeal(replicaGroup)
     redistributeCallbacks := m.tryRedistributeLocks(replicaGroup, locksToMove)
     if redistributeCallbacks != nil {
         return redistributeCallbacks
     }
+    locksToMove = m.getLocksToSplitEvenly(replicaGroup)
     return m.splitToNewWorker(replicaGroup, locksToMove)
 }
 
@@ -840,7 +845,8 @@ func (m *MasterFSM) singleRecalcitrantLockTransfer(oldGroupId ReplicaGroupId, ne
     return []func() [][]byte{f}
 }
 
-func (m *MasterFSM) getLocksToSplit(replicaGroup ReplicaGroupId) ([]Lock) {
+// Lexicographically split evenly based on frequency of access
+func (m *MasterFSM) getLocksToSplitEvenly(replicaGroup ReplicaGroupId) ([]Lock) {
     /* Find all domains for locks in replica group. */
     locks := make([]string, 0)
     for l := range(m.LockMap) {
@@ -850,12 +856,39 @@ func (m *MasterFSM) getLocksToSplit(replicaGroup ReplicaGroupId) ([]Lock) {
     }
     sort.Strings(locks)
 
+    totFreq := m.GroupFreqStatsMap[replicaGroup].avgFreq
+    currSplitFreq := 0.0
     splitLocks := make([]Lock, 0)
-    for i := range(locks) {
-        if i >= len(locks) / 2 {
+    for _,l := range(locks) {
+        if currSplitFreq >= totFreq / 2.0 {
             return splitLocks
         }
-        splitLocks = append(splitLocks, Lock(locks[i]))
+        currSplitFreq += m.LockFreqStatsMap[Lock(l)].avgFreq
+        splitLocks = append(splitLocks, Lock(l))
+    }
+    fmt.Println("MASTER: error in splitting locks")
+    return splitLocks
+}
+
+func (m *MasterFSM) getLocksToShedLoadToIdeal(replicaGroup ReplicaGroupId) ([]Lock) {
+    /* Find all domains for locks in replica group. */
+    locks := make([]string, 0)
+    for l := range(m.LockMap) {
+        if m.LockMap[l] == replicaGroup {
+            locks = append(locks, string(l))
+        }
+    }
+    sort.Strings(locks)
+
+    goalFreq := m.GroupFreqStatsMap[replicaGroup].avgFreq - m.IdealFreq
+    currSplitFreq := 0.0
+    splitLocks := make([]Lock, 0)
+    for _,l := range(locks) {
+        if currSplitFreq >= goalFreq {
+            return splitLocks
+        }
+        currSplitFreq += m.LockFreqStatsMap[Lock(l)].avgFreq
+        splitLocks = append(splitLocks, Lock(l))
     }
     fmt.Println("MASTER: error in splitting locks")
     return splitLocks
