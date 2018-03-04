@@ -470,58 +470,75 @@ func (m *MasterFSM) shedLoad(replicaGroup ReplicaGroupId) []func() [][]byte {
     return m.splitToNewWorker(replicaGroup, locksToMove)
 }
 
-func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
+func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToRedistribute []Lock) []func() [][]byte {
     // TODO: in future, split between multiple clusters, don't just dump on 1 random cluster
 
-    newReplicaGroup := m.getWorkerToTakeLocks(locksToMove, replicaGroup)
-    if newReplicaGroup == NO_WORKER {
-        /* abort if no other worker to join with. */
-        return nil 
+    redistributeMap := make(map[ReplicaGroupId][]Lock)
+    anticipatedAdditionalLoad := make(map[ReplicaGroupId]float64)
+    for _, l := range locksToRedistribute {
+        newReplicaGroup := m.getWorkerToTakeLock(l, replicaGroup, anticipatedAdditionalLoad)
+        if newReplicaGroup == NO_WORKER {
+            /* abort if no other worker to join with. */
+            return nil 
+        }
+        if _,ok := redistributeMap[newReplicaGroup]; !ok {
+            redistributeMap[newReplicaGroup] = make([]Lock, 0)
+        }
+        anticipatedAdditionalLoad[newReplicaGroup] += m.LockFreqStatsMap[l].avgFreq
+        redistributeMap[newReplicaGroup] = append(redistributeMap[newReplicaGroup], l)
     }
-    m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup, locksToMove)
+
+    rebalancingFuncs := make([]func()[][]byte, 0)
 
     fmt.Println("redistributing locks for: ", replicaGroup)
     m.RebalancingInProgress[replicaGroup] = true
 
 
-    rebalancing_func := func() [][]byte {
-        /* Initiate rebalancing and find recalcitrant locks. */
-        recalcitrantLocks := m.initiateTransfer(replicaGroup, locksToMove)
+    for newReplicaGroup := range redistributeMap {
+        locksToMove := redistributeMap[newReplicaGroup]
+        m.patchReferencesToOldWorker(replicaGroup, newReplicaGroup, locksToMove)
 
-        recalcitrantLocksList := make([]Lock, 0)
-        for l := range(recalcitrantLocks) {
-            recalcitrantLocksList = append(recalcitrantLocksList, l)
-        }
+        rebalancingFunc := func() [][]byte {
+            /* Initiate rebalancing and find recalcitrant locks. */
+            recalcitrantLocks := m.initiateTransfer(replicaGroup, locksToMove)
 
-        /* Using set of recalcitrant locks, determine locks that can be moved. */
-        locksCanMove := make([]Lock, 0)
-        for _, currLock := range(locksToMove) {
-            if _, ok := recalcitrantLocks[currLock]; !ok {
-                locksCanMove = append(locksCanMove, currLock)
+            recalcitrantLocksList := make([]Lock, 0)
+            for l := range(recalcitrantLocks) {
+                recalcitrantLocksList = append(recalcitrantLocksList, l)
             }
+
+            /* Using set of recalcitrant locks, determine locks that can be moved. */
+            locksCanMove := make([]Lock, 0)
+            for _, currLock := range(locksToMove) {
+                if _, ok := recalcitrantLocks[currLock]; !ok {
+                    locksCanMove = append(locksCanMove, currLock)
+                }
+            }
+
+            /* Ask new replica group to claim set of locks that can be moved. */
+            m.askWorkerToClaimLocks(newReplicaGroup, locksCanMove)
+
+            /* Tell master to transfer ownership of locks from old group to new group. */
+            args := make(map[string]string)
+            args[FunctionKey] = TransferLockGroupCommand
+            args[LockArrayKey] = lock_array_to_string(locksCanMove)
+            args[LockArray2Key] = lock_array_to_string(recalcitrantLocksList)
+            args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
+            args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
+            command, json_err := json.Marshal(args)
+            if json_err != nil {
+                fmt.Println("MASTER: json error")
+            }
+            return [][]byte{command}
         }
 
-        /* Ask new replica group to claim set of locks that can be moved. */
-        m.askWorkerToClaimLocks(newReplicaGroup, locksCanMove)
+        rebalancingFuncs = append(rebalancingFuncs, rebalancingFunc)
 
-        /* Tell master to transfer ownership of locks from old group to new group. */
-        args := make(map[string]string)
-        args[FunctionKey] = TransferLockGroupCommand
-        args[LockArrayKey] = lock_array_to_string(locksCanMove)
-        args[LockArray2Key] = lock_array_to_string(recalcitrantLocksList)
-        args[OldGroupKey] = strconv.Itoa(int(replicaGroup))
-        args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
-        command, json_err := json.Marshal(args)
-        if json_err != nil {
-            fmt.Println("MASTER: json error")
-        }
-        return [][]byte{command}
-        }
-
-    return []func() [][]byte{rebalancing_func}
+    }
+    return rebalancingFuncs 
 }
 
-func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []Lock) []func() [][]byte {
+func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []Lock) ([]func() [][]byte) {
     fmt.Println("MASTER: SPLITTING LOAD")
     /* Update state in preparation for adding new cluster. */
     fmt.Println("next replica group id: ", m.NextReplicaGroupId)
@@ -575,19 +592,14 @@ func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []
 }
 
 // can return NO_WORKER if not a good candidate
-func (m *MasterFSM) getWorkerToTakeLocks(locksToMove []Lock, replicaGroup ReplicaGroupId) ReplicaGroupId {
-    totFreq := 0.0
-    for _, l := range locksToMove {
-        totFreq += m.LockFreqStatsMap[l].avgFreq
-    }
+func (m *MasterFSM) getWorkerToTakeLock(l Lock, replicaGroup ReplicaGroupId, anticipatedAdditionalLoad map[ReplicaGroupId]float64) ReplicaGroupId {
+    lockFreq := m.LockFreqStatsMap[l].avgFreq
     candidates := make(map[ReplicaGroupId]bool)
-    for _,l := range locksToMove {
-        d := getParentDomain(string(l))
-        domainGroups := m.DomainPlacementMap[d]
-        for _, domainGroup := range domainGroups {
-            if domainGroup != replicaGroup && !m.RebalancingInProgress[domainGroup] && (m.GroupFreqStatsMap[domainGroup].avgFreq + totFreq) < m.MaxFreq{
-                candidates[domainGroup] = true
-            }
+    d := getParentDomain(string(l))
+    domainGroups := m.DomainPlacementMap[d]
+    for _, domainGroup := range domainGroups {
+        if domainGroup != replicaGroup && !m.RebalancingInProgress[domainGroup] && (m.GroupFreqStatsMap[domainGroup].avgFreq + anticipatedAdditionalLoad[domainGroup] + lockFreq) < m.MaxFreq{
+            candidates[domainGroup] = true
         }
     }
     candidateList := make([]ReplicaGroupId, 0)
