@@ -270,14 +270,15 @@ func (m *MasterFSM) createLock(l Lock) ([]func() [][]byte, CreateLockResponse) {
     m.LockFreqStatsMap[l] = FreqStats{lastUpdate: time.Now(), avgFreq: 0}
 
     /* Trigger rebalancing if number of locks held by replica group >= rebalance threshold. */
-    var rebalanceCallbacks []func() [][]byte
-    underworkedWorker := m.findUnderworkedWorker()
-    if underworkedWorker != NO_WORKER {
-        rebalanceCallbacks = m.retireWorker(underworkedWorker)
-    }
+    var rebalanceCallbacks []func() [][]byte = nil
     overworkedWorker := m.findOverworkedWorker()
     if overworkedWorker != NO_WORKER {
         rebalanceCallbacks = m.shedLoad(overworkedWorker)
+    } else {
+        underworkedWorker := m.findUnderworkedWorker()
+        if underworkedWorker != NO_WORKER {
+            rebalanceCallbacks = m.retireWorker(underworkedWorker)
+        }
     }
 
     f := func() [][]byte {
@@ -389,15 +390,12 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
         return -1, ErrNoPlacement
     }
     chosen := replicaGroups[0]
-    minLoad := m.NumLocksHeld[chosen]
+    minLoad := m.GroupFreqStatsMap[chosen].avgFreq
     for _, replicaGroup := range(replicaGroups) {
-        if minLoad > m.NumLocksHeld[replicaGroup] {
+        if minLoad > m.GroupFreqStatsMap[chosen].avgFreq {
             chosen = replicaGroup
-            minLoad = m.NumLocksHeld[replicaGroup]
+            minLoad = m.GroupFreqStatsMap[replicaGroup].avgFreq
         }
-    }
-    if chosen == -1 {
-        return -1, ErrNoPlacement
     }
     return chosen, "" 
 }
@@ -427,14 +425,15 @@ func (m *MasterFSM) deleteLockNotAcquired(l Lock) []func() [][]byte {
     m.NumLocksHeld[replicaGroup]--
 
     /* Check if should split or join */
-    var rebalanceCallbacks []func() [][]byte
-    underworkedWorker := m.findUnderworkedWorker()
-    if underworkedWorker != NO_WORKER {
-        rebalanceCallbacks = m.retireWorker(underworkedWorker)
-    }
+    var rebalanceCallbacks []func() [][]byte = nil
     overworkedWorker := m.findOverworkedWorker()
     if overworkedWorker != NO_WORKER {
         rebalanceCallbacks = m.shedLoad(overworkedWorker)
+    } else {
+        underworkedWorker := m.findUnderworkedWorker()
+        if underworkedWorker != NO_WORKER {
+            rebalanceCallbacks = m.retireWorker(underworkedWorker)
+        }
     }
 
     f := func() [][]byte {
