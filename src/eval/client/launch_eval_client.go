@@ -9,12 +9,16 @@ import(
     "time"
     "strconv"
     "eval"
+    "sync"
 )
+
+var totalOps uint64 = 0
+var totalOpsLock *sync.Mutex = &sync.Mutex{}
 
 func main() {
     args := os.Args[1:]
-    if len(args) != 6 {
-        fmt.Println("Need 6 arguments, client IP addr, master IP addr, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1)")
+    if len(args) != 7 {
+        fmt.Println("Need 7 arguments, client IP addr, master IP addr, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1), and how many threads to create")
         return
     }
     clientIP := args[0]
@@ -23,20 +27,34 @@ func main() {
     numLocksPerClient, err2 := strconv.Atoi(args[3])
     totalClients, err3 := strconv.Atoi(args[4])
     diffDomainsNum, err4 := strconv.Atoi(args[5])
-    if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+    numThreads, err5 := strconv.Atoi(args[6])
+    if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
         fmt.Println("Arguments not valid numbers")
         return
     }
     diffDomains := diffDomainsNum != 0
     clientAddr := raft.ServerAddress(clientIP + ":0")
     masterAddrs := eval.GenerateMasterServerList(masterIP)
-    lockList := eval.GenerateLockList(numLocksPerClient, totalClients, diffDomains)
-    go runLockClient(lockList[clientNum], clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))
+    lockList := eval.GenerateLockList(numLocksPerClient, totalClients * numThreads, diffDomains)
+    for i := 0; i < numThreads; i++ {
+        go runLockClient(lockList[(clientNum * numThreads) + i], clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))
+    }
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt)
     go waitOneMinute(c)
     <-c
     time.Sleep(time.Second)
+    f, err := os.OpenFile("client_eval_" + strconv.Itoa(clientNum), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+    if err != nil {
+        fmt.Println("error creating/opening file: ", err)
+        return
+    }
+    defer f.Close()
+    totalOpsLock.Lock()
+    fmt.Fprintf(f, "# locks per client = %d, total # clients = %d, # threads per client = %d, different domains = %d, numOps = %d\n", numLocksPerClient, totalClients, numThreads, diffDomainsNum, totalOps)
+    fmt.Println("NUM OPS: ", totalOps)
+    totalOpsLock.Unlock()
+
 }
 
 func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterAddrs []raft.ServerAddress, filename string) {
@@ -49,8 +67,8 @@ func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterA
     if lc_err != nil {
         fmt.Println("err: ", lc_err)
     }
-    start := time.Now()
-    numOps := 0
+    var numOps uint64
+    numOps = 0
     c1 := make(chan os.Signal, 1)
     c2 := make(chan os.Signal, 1)
     signal.Notify(c1, os.Interrupt)
@@ -59,20 +77,9 @@ func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterA
     go waitOneMinute(c2)
     go ops_loop(lockList, &numOps, lc, c2)
     <-c1
-    end := time.Now()
-    fmt.Println("START: ", start)
-    fmt.Println("END: ", end)
-    fmt.Println("DURATION (sec): ", (end.Sub(start).Seconds()))
-    fmt.Println("NUM OPS: ", numOps)
-    throughput := float64(numOps) / (end.Sub(start).Seconds())
-    fmt.Println("THROUGHPUT (ops/sec): ", throughput)
-    f, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-    if err != nil {
-        fmt.Println("error creating/opening file: ", err)
-        return
-    }
-    defer f.Close()
-    fmt.Fprintf(f, "throughput = %f, duration = %f, numOps = %d\n", throughput, end.Sub(start).Seconds(), numOps)
+    totalOpsLock.Lock()
+    totalOps += numOps
+    totalOpsLock.Unlock()
 }
 
 func waitOneMinute(c chan os.Signal) {
@@ -80,7 +87,7 @@ func waitOneMinute(c chan os.Signal) {
     c <- os.Interrupt
 }
 
-func ops_loop(locks []locks.Lock, numOps *int, lc *locks.LockClient, c chan os.Signal) {
+func ops_loop(locks []locks.Lock, numOps *uint64, lc *locks.LockClient, c chan os.Signal) {
     for true {
         for _,l := range locks {
             select {

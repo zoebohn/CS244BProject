@@ -1419,7 +1419,9 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
     var nextCommands [][]byte
     callbacks := f.Callback()
     for _,callback := range callbacks {
+        r.logger.Printf("EXECUTING CALLBACK")
         commands := callback()
+        r.logger.Printf("**resulting commands: ", commands)
         for _, command := range commands {
             nextCommands = append(nextCommands, command)
         }
