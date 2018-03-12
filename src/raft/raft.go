@@ -1396,7 +1396,9 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
             var rpcErr error
             for _,entry := range(c.Entries) {
-                r.applyCommand(entry.Data, resp, &rpcErr)
+                if (entry != nil) {
+                    r.applyCommand(entry.Data, resp, &rpcErr)
+                }
             }
             rpc.Respond(resp, rpcErr)
         }(r, resp, rpc, c)
@@ -1445,7 +1447,7 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
             r.leaderState.clientSessionsLock.Lock()
             r.leaderState.clientSessions[clientAddr].lastContact = time.Now()
             r.leaderState.clientSessionsLock.Unlock()
-        case <- time.After(5*time.Second):
+        case <- time.After(30*time.Second):
             r.logger.Printf("ending client session")
             var err error
             r.leaderState.clientSessionsLock.RLock()

@@ -100,7 +100,7 @@ func (s *Session) CloseClientSession() error {
 func (s *Session) sessionKeepAliveLoop() {
     for s.active {
         select {
-        case <-time.After(time.Second):
+        case <-time.After(10*time.Second):
         case <- s.stopCh:
             s.active = false
         }
@@ -152,9 +152,12 @@ func (s *Session) sendToActiveLeader(request *ClientRequest, response *ClientRes
             err = sendRPC(s.currConn, rpcClientRequest, request)
         }
         /* Decode response if necesary. Try new server to find leader if necessary. */
+        if (s.currConn == nil) {
+            return errors.New("Failed to find active leader.")
+        }
         _, err = decodeResponse(s.currConn, &response)
         if err != nil {
-            if response.LeaderAddress != "" {
+            if response != nil && response.LeaderAddress != "" {
                 s.currConn, _ = s.trans.getConn(response.LeaderAddress)
              } else {
                 /* Wait for leader to be elected. */

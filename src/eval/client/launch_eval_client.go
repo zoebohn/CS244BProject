@@ -83,7 +83,8 @@ func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterA
 }
 
 func waitOneMinute(c chan os.Signal) {
-    time.Sleep(time.Minute)
+    timer := time.NewTimer(5*time.Minute)
+    <-timer.C
     c <- os.Interrupt
 }
 
