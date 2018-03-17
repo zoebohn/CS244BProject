@@ -578,7 +578,7 @@ func decodeResponse(conn *netConn, resp interface{}) (bool, error) {
 func sendRPC(conn *netConn, rpcType uint8, args interface{}) error {
 	// Write the request type
 	if err := conn.w.WriteByte(rpcType); err != nil {
-		conn.Release()
+        conn.Release()
 		return err
 	}
 
@@ -589,8 +589,8 @@ func sendRPC(conn *netConn, rpcType uint8, args interface{}) error {
 	}
 
 	// Flush
-	if err := conn.w.Flush(); err != nil {
-		conn.Release()
+    if err := conn.w.Flush(); err != nil {
+        conn.Release()
 		return err
 	}
 	return nil

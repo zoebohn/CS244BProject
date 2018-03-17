@@ -55,7 +55,9 @@ func CreateClientSession(trans *NetworkTransport, addrs []ServerAddress, endSess
     if err != nil {
         return nil ,err
     }
-    go session.sessionKeepAliveLoop()
+    if endSessionCommand != nil {
+       go session.sessionKeepAliveLoop()
+    }
     return session, nil
 }
 

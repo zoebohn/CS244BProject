@@ -8,6 +8,7 @@ import(
     "eval"
     "fmt"
     "strconv"
+    "time"
 )
 
 func main() {
@@ -45,7 +46,15 @@ func main() {
         workers := eval.GenerateWorkerServerList(workerIP)
         recruitList = append(recruitList, workers)
     }
-    locks.MakeCluster(3, locks.CreateMasters(len(masterAddrs), masterAddrs, recruitList, maxFreq, minFreq, idealFreq, maxInactivePeriods, false), masterAddrs)
+    transports := make([]*raft.NetworkTransport, len(masterAddrs))
+    for i := range masterAddrs {
+        trans, err := raft.NewTCPTransport(string(masterAddrs[i]), nil, 2, time.Second, nil)
+        if err != nil {
+            fmt.Println("err : ", err)
+        }
+        transports[i] = trans
+    }
+    locks.MakeCluster(3, locks.CreateMasters(len(masterAddrs), masterAddrs, recruitList, maxFreq, minFreq, idealFreq, maxInactivePeriods, false, transports), masterAddrs, transports)
     c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c

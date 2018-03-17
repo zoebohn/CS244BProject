@@ -10,7 +10,7 @@ import(
 )
 
 // Starts up a new cluster.
-func MakeCluster(n int, fsms []raft.FSM, addrs []raft.ServerAddress) *cluster {
+func MakeCluster(n int, fsms []raft.FSM, addrs []raft.ServerAddress, transports []*raft.NetworkTransport) *cluster {
     conf := raft.DefaultConfig()
     bootstrap := true
 
@@ -39,10 +39,7 @@ func MakeCluster(n int, fsms []raft.FSM, addrs []raft.ServerAddress) *cluster {
 	    snap, err := raft.NewFileSnapshotStore(dir, 3, nil)
 		c.snaps = append(c.snaps, snap)
 
-        trans, err := raft.NewTCPTransport(string(addrs[i]), nil, 2, time.Second, nil)
-        if err != nil {
-            fmt.Println("err: %v", err)
-        }
+        trans := transports[i]
         addr := trans.LocalAddr()
         c.trans = append(c.trans, trans)
 		localID := raft.ServerID(fmt.Sprintf("server-%s", addr))

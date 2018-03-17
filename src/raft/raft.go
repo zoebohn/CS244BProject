@@ -1379,18 +1379,20 @@ func (r *Raft) clientRequest(rpc RPC, c *ClientRequest) {
             _, ok := r.leaderState.clientSessions[c.ClientAddr]
             r.leaderState.clientSessionsLock.RUnlock()
             // If first session, start heartbeat loop.
-            if !ok {
-                r.leaderState.clientSessionsLock.Lock()
-                r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
-                r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
-                r.leaderState.clientSessions[c.ClientAddr].endSessionCommand = c.EndSessionCommand
-                r.leaderState.clientSessionsLock.Unlock()
-                go r.clientSessionHeartbeatLoop(c.ClientAddr)
+            if c.EndSessionCommand != nil {
+                if !ok {
+                    r.leaderState.clientSessionsLock.Lock()
+                    r.leaderState.clientSessions[c.ClientAddr] = &clientSession{}
+                    r.leaderState.clientSessions[c.ClientAddr].heartbeatCh = make (chan bool, 1)
+                    r.leaderState.clientSessions[c.ClientAddr].endSessionCommand = c.EndSessionCommand
+                    r.leaderState.clientSessionsLock.Unlock()
+                    go r.clientSessionHeartbeatLoop(c.ClientAddr)
+                }
+                r.leaderState.clientSessionsLock.RLock()
+                ch := r.leaderState.clientSessions[c.ClientAddr].heartbeatCh
+                r.leaderState.clientSessionsLock.RUnlock()
+                ch <- true
             }
-            r.leaderState.clientSessionsLock.RLock()
-            ch := r.leaderState.clientSessions[c.ClientAddr].heartbeatCh
-            r.leaderState.clientSessionsLock.RUnlock()
-            ch <- true
         }
         // Apply all commands in client request.
         go func(r *Raft, resp *ClientResponse, rpc RPC, c *ClientRequest) {
@@ -1421,9 +1423,7 @@ func (r *Raft) applyCommand(command []byte, resp *ClientResponse, rpcErr *error)
     var nextCommands [][]byte
     callbacks := f.Callback()
     for _,callback := range callbacks {
-        r.logger.Printf("EXECUTING CALLBACK")
         commands := callback()
-        r.logger.Printf("**resulting commands: ", commands)
         for _, command := range commands {
             nextCommands = append(nextCommands, command)
         }
@@ -1453,7 +1453,9 @@ func (r *Raft) clientSessionHeartbeatLoop(clientAddr ServerAddress) {
             r.leaderState.clientSessionsLock.RLock()
             command := r.leaderState.clientSessions[clientAddr].endSessionCommand
             r.leaderState.clientSessionsLock.RUnlock()
-            r.applyCommand(command, &ClientResponse{}, &err)
+            if command != nil {
+                r.applyCommand(command, &ClientResponse{}, &err)
+            }
             r.leaderState.clientSessionsLock.Lock()
             delete(r.leaderState.clientSessions, clientAddr)
             r.leaderState.clientSessionsLock.Unlock()

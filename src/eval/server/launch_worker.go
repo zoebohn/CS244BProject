@@ -6,6 +6,8 @@ import(
     "os/signal"
     "fmt"
     "eval"
+    "raft"
+    "time"
 )
 
 func main() {
@@ -19,7 +21,15 @@ func main() {
     workerAddrs := eval.GenerateWorkerServerList(workerIP)
     fmt.Println("Launching worker cluster at ", workerAddrs)
     masterAddrs := eval.GenerateMasterServerList(masterIP)
-    locks.MakeCluster(3, locks.CreateWorkers(len(workerAddrs), masterAddrs), workerAddrs)
+    transports := make([]*raft.NetworkTransport, len(workerAddrs))
+    for i := range workerAddrs {
+        trans, err := raft.NewTCPTransport(string(workerAddrs[i]), nil, 2, time.Second, nil)
+        if err != nil {
+            fmt.Println("err : ", err)
+        }
+        transports[i] = trans
+    }
+    locks.MakeCluster(3, locks.CreateWorkers(len(workerAddrs), masterAddrs, workerAddrs, transports), workerAddrs, transports)
     c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c

@@ -2,7 +2,6 @@ package locks
 
 import(
     "raft"
-    "fmt"
     "strings"
     "io"
     "encoding/json"
@@ -47,6 +46,10 @@ type MasterFSM struct {
     LockFreqStatsMap          map[Lock]FreqStats
     /* Map of replica group to average frequency accessed. */
     GroupFreqStatsMap       map[ReplicaGroupId]FreqStats
+    /* Map of worker sessions. */
+    WorkerSessionMap        map[ReplicaGroupId]*raft.Session
+    SessionLock             sync.RWMutex
+    Trans                   *raft.NetworkTransport
 }
 
 type FreqStats struct {
@@ -66,6 +69,10 @@ var PERIOD time.Duration = 200 * time.Millisecond
 
 const WEIGHT = 0.2
 
+const STABILIZE_FACTOR = 1000000 
+
+const IDEAL_FACTOR = 1 
+
 const numClusterServers = 3
 
 const NO_WORKER = ReplicaGroupId(-1)
@@ -74,7 +81,7 @@ type MasterSnapshot struct{
     json    []byte
 }
 
-func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxFreq float64, minFreq float64, idealFreq float64, maxInactivePeriods int, recruitClustersLocally bool) ([]raft.FSM) {
+func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]raft.ServerAddress, maxFreq float64, minFreq float64, idealFreq float64, maxInactivePeriods int, recruitClustersLocally bool, transports []*raft.NetworkTransport) ([]raft.FSM) {
     masters := make([]*MasterFSM, n)
     for i := range(masters) {
         masters[i] = &MasterFSM {
@@ -94,6 +101,8 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
             RebalancingInProgress: make(map[ReplicaGroupId]bool),
             LockFreqStatsMap:         make(map[Lock]FreqStats),
             GroupFreqStatsMap:      make(map[ReplicaGroupId]FreqStats),
+            WorkerSessionMap:       make(map[ReplicaGroupId]*raft.Session),
+            Trans:                  transports[i],
         }
         for _,addrs := range recruitList {
             elem := RecruitInfo{addrs: addrs, shouldRecruitLocally: recruitClustersLocally}
@@ -101,12 +110,12 @@ func CreateMasters (n int, clusterAddrs []raft.ServerAddress, recruitList [][]ra
         }
     }
     if n <= 0 {
-        fmt.Println("MASTER: Cannot have number of masters <= 0")
+        //fmt.Println("MASTER: Cannot have number of masters <= 0")
     }
     err := recruitInitialCluster(masters, recruitList[0], recruitClustersLocally)
     if err != nil {
         //TODO
-        fmt.Println(err)
+        //fmt.Println(err)
     }
     fsms := make([]raft.FSM, n)
     for i, m := range(masters) {
@@ -122,7 +131,7 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, []func() [][]byte) {
     args := make(map[string]string)
     err := json.Unmarshal(log.Data, &args)
     if err != nil {
-        fmt.Println("MASTER: error in apply: ", err)
+        //fmt.Println("MASTER: error in apply: ", err)
     }
     function := args[FunctionKey]
     switch function {
@@ -163,7 +172,7 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, []func() [][]byte) {
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
             newGroup, err2 := strconv.Atoi(args[NewGroupKey])
             if err1 != nil || err2 != nil {
-                fmt.Println("MASTER: group IDs can't be converted to ints")
+                //fmt.Println("MASTER: group IDs can't be converted to ints")
                 return nil, []func()[][]byte{}
             }
             lockArr := string_to_lock_array(args[LockArrayKey])
@@ -174,7 +183,7 @@ func (m *MasterFSM) Apply(log *raft.Log) (interface{}, []func() [][]byte) {
             oldGroup, err1 := strconv.Atoi(args[OldGroupKey])
             newGroup, err2 := strconv.Atoi(args[NewGroupKey])
             if err1 != nil || err2 != nil {
-                fmt.Println("MASTER: group IDs can't be converted to ints")
+                //fmt.Println("MASTER: group IDs can't be converted to ints")
                 return nil, []func()[][]byte{}
             }
             l := Lock(args[LockArgKey])
@@ -252,7 +261,7 @@ func convertFromJSONMaster(byte_arr []byte) (MasterFSM, error) {
 func (m *MasterFSM) createLock(l Lock) ([]func() [][]byte, CreateLockResponse) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
-    fmt.Println("MASTER: master creating lock with name ", string(l))
+    //fmt.Println("MASTER: master creating lock with name ", string(l))
     if len(string(l)) == 0 {
         return []func() [][]byte{}, CreateLockResponse{ErrEmptyPath}
     }
@@ -268,10 +277,10 @@ func (m *MasterFSM) createLock(l Lock) ([]func() [][]byte, CreateLockResponse) {
     if err != "" {
         return []func() [][]byte{}, CreateLockResponse{err}
     }
-    fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
+    //fmt.Println("MASTER: put lock ", string(l), " in domain", string(domain))
     m.NumLocksHeld[replicaGroup]++
     m.LockMap[l] = replicaGroup
-    m.LockFreqStatsMap[l] = FreqStats{lastUpdate: time.Now(), avgFreq: 0}
+    m.LockFreqStatsMap[l] = FreqStats{lastUpdate: time.Now(), avgFreq: 1}
 
     /* Trigger rebalancing if number of locks held by replica group >= rebalance threshold. */
     rebalanceCallbacks := m.loadBalanceCheck()
@@ -310,13 +319,13 @@ func (m *MasterFSM) loadBalanceCheck() []func()[][]byte {
 func (m *MasterFSM) deleteLock(l Lock) ([]func() [][]byte, DeleteLockResponse) {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
-    fmt.Println("MASTER: master deleting lock ", string(l))
+    //fmt.Println("MASTER: master deleting lock ", string(l))
     replicaGroup, ok := m.LockMap[l]
     if !ok {
         return []func() [][]byte{}, DeleteLockResponse{ErrLockDoesntExist}
     }
     triggerDelete := func()[][]byte {
-        fmt.Println("MASTER: delete lock " + l)
+        //fmt.Println("MASTER: delete lock " + l)
         delete_func := func() [][]byte {
             recalcitrantLocks := m.initiateTransfer(replicaGroup, []Lock{l})
             args := make(map[string]string)
@@ -330,7 +339,7 @@ func (m *MasterFSM) deleteLock(l Lock) ([]func() [][]byte, DeleteLockResponse) {
             args[LockArgKey] = string(l)
             command, json_err := json.Marshal(args)
             if json_err != nil {
-                fmt.Println("MASTER: json error")
+                //fmt.Println("MASTER: json error")
             }
             return [][]byte{command}
         }
@@ -344,7 +353,7 @@ func (m *MasterFSM) deleteLock(l Lock) ([]func() [][]byte, DeleteLockResponse) {
 func (m *MasterFSM) createLockDomain(d Domain) CreateDomainResponse {
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
-    fmt.Println("MASTER: master creating domain ", string(d))
+    //fmt.Println("MASTER: master creating domain ", string(d))
     if len(string(d)) == 0 {
         return CreateDomainResponse{ErrEmptyPath}
     }
@@ -413,7 +422,12 @@ func (m *MasterFSM) choosePlacement(replicaGroups []ReplicaGroupId) (ReplicaGrou
 
 func recruitInitialCluster(masters []*MasterFSM, workerAddrs []raft.ServerAddress, recruit_locally bool) (error) {
     if recruit_locally {
-        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].MasterCluster), workerAddrs)
+        transports := make([]*raft.NetworkTransport, len(workerAddrs))
+        for i := range workerAddrs {
+            trans,_ := raft.NewTCPTransport(string(workerAddrs[i]), nil, 2, time.Second, nil)
+            transports[i] = trans
+        }
+        MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), masters[0].MasterCluster, workerAddrs, transports), workerAddrs, transports)
     }
     id := masters[0].NextReplicaGroupId
     for i := range(masters) {
@@ -494,7 +508,7 @@ func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToRed
 
     rebalancingFuncs := make([]func()[][]byte, 0)
 
-    fmt.Println("redistributing locks for: ", replicaGroup)
+    //fmt.Println("redistributing locks for: ", replicaGroup)
     m.RebalancingInProgress[replicaGroup] = true
 
 
@@ -531,7 +545,7 @@ func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToRed
             args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
             command, json_err := json.Marshal(args)
             if json_err != nil {
-                fmt.Println("MASTER: json error")
+                //fmt.Println("MASTER: json error")
             }
             return [][]byte{command}
         }
@@ -543,10 +557,10 @@ func (m *MasterFSM) tryRedistributeLocks(replicaGroup ReplicaGroupId, locksToRed
 }
 
 func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []Lock) ([]func() [][]byte) {
-    fmt.Println("MASTER: SPLITTING LOAD")
-    fmt.Println("is rebalancing in progress for ", replicaGroup, ": ", m.RebalancingInProgress[replicaGroup])
+    //fmt.Println("MASTER: SPLITTING LOAD")
+    //fmt.Println("is rebalancing in progress for ", replicaGroup, ": ", m.RebalancingInProgress[replicaGroup])
     /* Update state in preparation for adding new cluster. */
-    fmt.Println("next replica group id: ", m.NextReplicaGroupId)
+    //fmt.Println("next replica group id: ", m.NextReplicaGroupId)
     workerAddrs := m.RecruitAddrs[m.NextReplicaGroupId].addrs
     shouldMakeNewCluster := m.RecruitAddrs[m.NextReplicaGroupId].shouldRecruitLocally
     newReplicaGroup := m.NextReplicaGroupId
@@ -564,9 +578,14 @@ func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []
         }
 
         /* Recruit new replica group to store rebalanced locks. */
-        fmt.Println("recruit addr list = ", m.RecruitAddrs, ", next replica group id (after ++) = ", m.NextReplicaGroupId)
+        //fmt.Println("recruit addr list = ", m.RecruitAddrs, ", next replica group id (after ++) = ", m.NextReplicaGroupId)
         if (shouldMakeNewCluster) {
-            MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.MasterCluster), workerAddrs)
+            transports := make([]*raft.NetworkTransport, len(workerAddrs))
+                for i := range workerAddrs {
+                    trans,_ := raft.NewTCPTransport(string(workerAddrs[i]), nil, 2, time.Second, nil)
+                    transports[i] = trans
+                }
+            MakeCluster(numClusterServers, CreateWorkers(len(workerAddrs), m.MasterCluster, workerAddrs, transports), workerAddrs, transports)
         }
 
         /* Using set of recalcitrant locks, determine locks that can be moved. */
@@ -589,11 +608,11 @@ func (m *MasterFSM) splitToNewWorker(replicaGroup ReplicaGroupId, locksToMove []
         args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
         command, json_err := json.Marshal(args)
         if json_err != nil {
-            fmt.Println("MASTER: json error")
+            //fmt.Println("MASTER: json error")
         }
         return [][]byte{command}
     }
-    fmt.Println("afterwards....")
+    //fmt.Println("afterwards....")
 
     return []func() [][]byte{rebalancing_func}
 }
@@ -605,7 +624,7 @@ func (m *MasterFSM) getWorkerToTakeLock(l Lock, replicaGroup ReplicaGroupId, ant
     d := getParentDomain(string(l))
     domainGroups := m.DomainPlacementMap[d]
     for _, domainGroup := range domainGroups {
-        if domainGroup != replicaGroup && !m.RebalancingInProgress[domainGroup] && (m.GroupFreqStatsMap[domainGroup].avgFreq + anticipatedAdditionalLoad[domainGroup] + lockFreq) < m.MaxFreq{
+        if domainGroup != replicaGroup && !m.RebalancingInProgress[domainGroup] && (m.GroupFreqStatsMap[domainGroup].avgFreq + anticipatedAdditionalLoad[domainGroup] + lockFreq) < m.calcMaxFreq() {
             candidates[domainGroup] = true
         }
     }
@@ -614,7 +633,7 @@ func (m *MasterFSM) getWorkerToTakeLock(l Lock, replicaGroup ReplicaGroupId, ant
         candidateList = append(candidateList, candidate)
     }
     if len(candidateList) == 0 {
-        fmt.Println("No viable worker to transfer locks to.")
+        //fmt.Println("No viable worker to transfer locks to.")
         return NO_WORKER
     }
     newReplicaGroup,_ := m.choosePlacement(candidateList)
@@ -640,7 +659,7 @@ func (m *MasterFSM) patchReferencesToOldWorker(oldReplicaGroup ReplicaGroupId, n
         }
         shouldAppend := false
         for i := 0; i < len(groups); i++ {
-            fmt.Println("i=", i, ", groups=", groups)
+            //fmt.Println("i=", i, ", groups=", groups)
             if groups[i] == oldReplicaGroup || groups[i] == newReplicaGroup {
                 if i == len(groups) - 1 {
                     groups = groups[:i]
@@ -674,11 +693,11 @@ func (m *MasterFSM) patchReferencesToOldWorker(oldReplicaGroup ReplicaGroupId, n
 }
 
 func (m *MasterFSM) retireWorker(replicaGroup ReplicaGroupId) []func() [][]byte {
-    fmt.Println("*** checking to retire worker")
+    //fmt.Println("*** checking to retire worker")
     locksToMove := m.getLocksToConsolidate(replicaGroup)
     retireCallbacks := m.tryRedistributeLocks(replicaGroup, locksToMove)
     if retireCallbacks != nil {
-        fmt.Println("****RETIRING WORKER: ", replicaGroup)
+        //fmt.Println("****RETIRING WORKER: ", replicaGroup)
         return retireCallbacks
     }
     return []func() [][]byte{}
@@ -700,13 +719,25 @@ func (m *MasterFSM) checkForFullyRetiredWorker(replicaGroup ReplicaGroupId) {
 func (m *MasterFSM) genericClusterRequest(replicaGroup ReplicaGroupId, args map[string]string, resp *raft.ClientResponse) {
     command, json_err := json.Marshal(args)
     if json_err != nil {
-        fmt.Println("MASTER: JSON ERROR")
+        //fmt.Println("MASTER: JSON ERROR")
     }
     m.FsmLock.RLock()
-    send_err := raft.SendSingletonRequestToCluster(m.ClusterMap[replicaGroup], command, resp)
+    m.SessionLock.Lock()
+    defer m.SessionLock.Unlock()
+    // TODO: USE SESSION
+    session, ok := m.WorkerSessionMap[replicaGroup]
+    var err error = nil
+    if !ok {
+        session, err = raft.CreateClientSession(m.Trans, m.ClusterMap[replicaGroup], nil)
+        m.WorkerSessionMap[replicaGroup] = session
+    }
+    if err != nil {
+        return
+    }
+    send_err := session.SendRequest(command, resp)
     m.FsmLock.RUnlock()
     if send_err != nil {
-       fmt.Println("MASTER: send err ", send_err)
+       //fmt.Println("MASTER: send err ", send_err)
     }
 }
 
@@ -720,19 +751,26 @@ func (m *MasterFSM) initiateTransfer(replicaGroup ReplicaGroupId, locksToMove []
     var response TransferResponse
     unmarshal_err := json.Unmarshal(resp.ResponseData, &response)
     if unmarshal_err != nil {
-        fmt.Println("MASTER: error unmarshalling")
+        //fmt.Println("MASTER: error unmarshalling")
     }
     return response.RecalcitrantLocks
+}
+
+func (m *MasterFSM) calcMaxFreq() float64 {
+    if (int(m.NextReplicaGroupId) == len(m.RecruitAddrs)) {
+        return STABILIZE_FACTOR * m.getTotalFreq() / float64(len(m.ClusterMap))
+    }
+    return m.MaxFreq
 }
 
 func (m *MasterFSM) findOverworkedWorker() ReplicaGroupId {
     for replicaGroup := range m.NumLocksHeld/*m.GroupFreqStatsMap*/ {
         // TODO: replace with real tracking
-        fmt.Println("check rep group ",  replicaGroup)
-        if m.GroupFreqStatsMap[replicaGroup].avgFreq >= m.MaxFreq {
-            fmt.Println("overthreshold but rebalancing")
+        //fmt.Println("check rep group ",  replicaGroup)
+        if m.GroupFreqStatsMap[replicaGroup].avgFreq >= m.calcMaxFreq() {
+            //fmt.Println("overthreshold but rebalancing")
             if _, ok := m.RebalancingInProgress[replicaGroup]; !ok {
-                fmt.Println("found overworked: ", replicaGroup)
+                //fmt.Println("found overworked: ", replicaGroup)
                 return replicaGroup
             }
         }
@@ -744,9 +782,9 @@ func (m *MasterFSM) findUnderworkedWorker() ReplicaGroupId {
     for replicaGroup := range m.NumLocksHeld/*m.GroupFreqStatsMap*/ {
         // TODO: replace with real tracking
         if m.GroupFreqStatsMap[replicaGroup].avgFreq <= m.MinFreq && time.Since(m.GroupFreqStatsMap[replicaGroup].lastUpdate) / PERIOD >= time.Duration(m.MaxInactivePeriods) {
-            fmt.Println("num locks held = ", m.NumLocksHeld[replicaGroup])
+            //fmt.Println("num locks held = ", m.NumLocksHeld[replicaGroup])
             if _, ok := m.RebalancingInProgress[replicaGroup]; !ok {
-                fmt.Println("reporting underworked at ", replicaGroup)
+                //fmt.Println("reporting underworked at ", replicaGroup)
                 return replicaGroup
             }
         }
@@ -754,11 +792,19 @@ func (m *MasterFSM) findUnderworkedWorker() ReplicaGroupId {
     return NO_WORKER
 }
 
+func (m *MasterFSM) getTotalFreq() float64 {
+    total := 0.0
+    for _, freq := range m.GroupFreqStatsMap {
+        total += freq.avgFreq
+    }
+    return total
+}
+
 
 
 func (m *MasterFSM) askWorkerToClaimLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
     /* Send RPC to worker with locks to claim. */
-    fmt.Println("MASTER: ask worker to claim locks\n")
+    //fmt.Println("MASTER: ask worker to claim locks\n")
     args := make(map[string]string)
     args[FunctionKey] = ClaimLocksCommand
     args[LockArrayKey] = lock_array_to_string(movingLocks)
@@ -768,7 +814,7 @@ func (m *MasterFSM) askWorkerToClaimLocks(replicaGroup ReplicaGroupId, movingLoc
 
 func (m *MasterFSM) askWorkerToDisownLocks(replicaGroup ReplicaGroupId, movingLocks []Lock) {
     /* Send RPC to worker with locks to claim. */
-    fmt.Println("MASTER: ask worker to disown locks")
+    //fmt.Println("MASTER: ask worker to disown locks")
     args := make(map[string]string)
     args[FunctionKey] = DisownLocksCommand
     args[LockArrayKey] = lock_array_to_string(movingLocks)
@@ -836,7 +882,7 @@ func (m *MasterFSM) initialLockGroupTransfer(oldGroupId ReplicaGroupId, newGroup
 
     /* No longer rebalancing */
     if _, ok := m.RebalancingInProgress[oldGroupId]; ok {
-        fmt.Println("DONE REBAL FOR ", oldGroupId)
+        //fmt.Println("DONE REBAL FOR ", oldGroupId)
         delete(m.RebalancingInProgress, oldGroupId)
     }
 
@@ -887,7 +933,7 @@ func (m *MasterFSM) getLocksToSplitEvenly(replicaGroup ReplicaGroupId) ([]Lock) 
         currSplitFreq += m.LockFreqStatsMap[Lock(l)].avgFreq
         splitLocks = append(splitLocks, Lock(l))
     }
-    fmt.Println("MASTER: error in splitting locks")
+    //fmt.Println("MASTER: error in splitting locks")
     return splitLocks
 }
 
@@ -901,7 +947,12 @@ func (m *MasterFSM) getLocksToShedLoadToIdeal(replicaGroup ReplicaGroupId) ([]Lo
     }
     sort.Strings(locks)
 
-    goalFreq := m.GroupFreqStatsMap[replicaGroup].avgFreq - m.IdealFreq
+    idealFreq := m.IdealFreq
+    if (int(m.NextReplicaGroupId) == len(m.RecruitAddrs)) {
+        idealFreq = (m.getTotalFreq() / float64(len(m.ClusterMap))) * (IDEAL_FACTOR);
+    }
+
+    goalFreq := m.GroupFreqStatsMap[replicaGroup].avgFreq - idealFreq
     currSplitFreq := 0.0
     splitLocks := make([]Lock, 0)
     for _,l := range(locks) {
@@ -911,7 +962,7 @@ func (m *MasterFSM) getLocksToShedLoadToIdeal(replicaGroup ReplicaGroupId) ([]Lo
         currSplitFreq += m.LockFreqStatsMap[Lock(l)].avgFreq
         splitLocks = append(splitLocks, Lock(l))
     }
-    fmt.Println("MASTER: error in splitting locks")
+    //fmt.Println("MASTER: error in splitting locks")
     return splitLocks
 }
 
@@ -949,7 +1000,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) []func() [][]byte {
 
    sendLockFunc := func() [][]byte {
        m.FsmLock.RLock()
-       fmt.Println("MASTER: send ", l, " to ", newReplicaGroup, " at ", m.ClusterMap[newReplicaGroup])
+       //fmt.Println("MASTER: send ", l, " to ", newReplicaGroup, " at ", m.ClusterMap[newReplicaGroup])
        m.FsmLock.RUnlock()
        m.askWorkerToClaimLocks(newReplicaGroup, []Lock{l})
 
@@ -961,7 +1012,7 @@ func (m *MasterFSM) handleReleasedRecalcitrant(l Lock) []func() [][]byte {
        args[NewGroupKey] = strconv.Itoa(int(newReplicaGroup))
        command, json_err := json.Marshal(args)
        if json_err != nil {
-           fmt.Println("MASTER: json error")
+           //fmt.Println("MASTER: json error")
        }
        return [][]byte{command}
    }
@@ -973,10 +1024,15 @@ func (m *MasterFSM) updateFrequencies(lockArr []Lock, countArr []int)[]func()[][
     m.FsmLock.Lock()
     defer m.FsmLock.Unlock()
     currTime := time.Now()
-    fmt.Println("Update freqs")
+    //fmt.Println("Update freqs")
     sumFreq := 0.0
     for i := range lockArr {
         /* Calculate new exponentially weighted moving average. */
+        if m.RebalancingInProgress[m.LockMap[lockArr[i]]] {
+            newStats := FreqStats{avgFreq: m.LockFreqStatsMap[lockArr[i]].avgFreq, lastUpdate: currTime}
+            m.LockFreqStatsMap[lockArr[i]] = newStats
+            continue
+        }
         stats := m.LockFreqStatsMap[lockArr[i]]
         numPeriodsElapsed := float64(time.Since(stats.lastUpdate) / PERIOD)
         newFreq := float64(countArr[i]) / numPeriodsElapsed
@@ -984,7 +1040,7 @@ func (m *MasterFSM) updateFrequencies(lockArr []Lock, countArr []int)[]func()[][
         for i := 0; i < int(numPeriodsElapsed); i++ {
             currAvgFreq = (newFreq * WEIGHT * numPeriodsElapsed) + (currAvgFreq * (1 - WEIGHT))
         }
-        fmt.Println("frequency of ", lockArr[i], " is ", currAvgFreq)
+        //fmt.Println("frequency of ", lockArr[i], " is ", currAvgFreq)
         sumFreq += currAvgFreq
         newStats := FreqStats{avgFreq: currAvgFreq, lastUpdate: currTime}
         m.LockFreqStatsMap[lockArr[i]] = newStats
@@ -993,6 +1049,6 @@ func (m *MasterFSM) updateFrequencies(lockArr []Lock, countArr []int)[]func()[][
     if len(lockArr) > 0 {
         m.GroupFreqStatsMap[m.LockMap[lockArr[0]]] = FreqStats{avgFreq: sumFreq, lastUpdate: currTime}
     }
-    fmt.Println("Returned from update freqs")
+    //fmt.Println("Returned from update freqs")
     return m.loadBalanceCheck()
 }
