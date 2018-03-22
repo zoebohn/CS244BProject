@@ -17,24 +17,26 @@ var totalOpsLock *sync.Mutex = &sync.Mutex{}
 
 func main() {
     args := os.Args[1:]
-    if len(args) != 7 {
+    if len(args) < 7 {
         fmt.Println("Need 7 arguments, client IP addr, master IP addr, client number, number of locks per client, number of total clients, and if should use different domains (0 or 1), and how many threads to create")
         return
     }
-    clientIP := args[0]
-    masterIP := args[1]
-    clientNum, err1 := strconv.Atoi(args[2])
-    numLocksPerClient, err2 := strconv.Atoi(args[3])
-    totalClients, err3 := strconv.Atoi(args[4])
-    diffDomainsNum, err4 := strconv.Atoi(args[5])
-    numThreads, err5 := strconv.Atoi(args[6])
+    clientIP := args[3]
+    masterAddrs := make([]raft.ServerAddress, 0)
+    for i := 0; i < 3; i++ {
+        masterAddrs = append(masterAddrs, raft.ServerAddress(args[i]))
+    }
+    clientNum, err1 := strconv.Atoi(args[4])
+    numLocksPerClient, err2 := strconv.Atoi(args[5])
+    totalClients, err3 := strconv.Atoi(args[6])
+    diffDomainsNum, err4 := strconv.Atoi(args[7])
+    numThreads, err5 := strconv.Atoi(args[8])
     if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
         fmt.Println("Arguments not valid numbers")
         return
     }
     diffDomains := diffDomainsNum != 0
     clientAddr := raft.ServerAddress(clientIP + ":0")
-    masterAddrs := eval.GenerateMasterServerList(masterIP)
     lockList := eval.GenerateLockList(numLocksPerClient, totalClients * numThreads, diffDomains)
     for i := 0; i < numThreads; i++ {
         go runLockClient(lockList[(clientNum * numThreads) + i], clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))

@@ -8,6 +8,7 @@ import(
     "strconv"
     "sync"
     "time"
+    "fmt"
 )
 
 type WorkerFSM struct{
@@ -232,7 +233,7 @@ func (w *WorkerFSM) claimLocks(lock_arr []Lock) {
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
     for _, l := range lock_arr {
-        //fmt.Println("WORKER: claiming lock ", string(l))
+        fmt.Println("WORKER: claiming lock ", string(l))
         w.LockStateMap[l] = lockState{Held: false, Client: "", Recalcitrant: false, }
         w.SequencerMap[l] = 0
     }
@@ -242,7 +243,7 @@ func (w *WorkerFSM) disownLocks(lock_arr []Lock) {
     w.FsmLock.Lock()
     defer w.FsmLock.Unlock()
     for _, l := range lock_arr {
-        //fmt.Println("WORKER: disowning lock ", string(l))
+        fmt.Println("WORKER: disowning lock ", string(l))
         delete(w.LockStateMap, l)
     }
 }

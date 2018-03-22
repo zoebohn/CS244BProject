@@ -69,7 +69,7 @@ var PERIOD time.Duration = 200 * time.Millisecond
 
 const WEIGHT = 0.2
 
-const STABILIZE_FACTOR = 1000000 
+const STABILIZE_FACTOR = 10
 
 const IDEAL_FACTOR = 1 
 

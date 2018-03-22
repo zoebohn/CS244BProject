@@ -37,9 +37,15 @@ func main() {
     masterAddrs := eval.GenerateMasterServerList(masterIP)
     lockList := eval.GenerateLockList(numLocksPerClient, totalClients * numThreads, diffDomains)
     for i := 0; i < numThreads; i++ {
-        go runLockClient(lockList[(clientNum * numThreads) + i], clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))
+        go runLockClient([]locks.Lock{lockList[(clientNum * numThreads) + i][0]}, clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))
     }
     c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt)
+    go waitOneMinute(c)
+    <-c
+    for i := 0; i < numThreads; i++ {
+        go runLockClient([]locks.Lock{lockList[(clientNum * numThreads) + i][1]}, clientAddr, masterAddrs, "client_eval_" + strconv.Itoa(clientNum))
+    }
     signal.Notify(c, os.Interrupt)
     go waitOneMinute(c)
     <-c
@@ -83,8 +89,7 @@ func runLockClient(lockList []locks.Lock, clientAddr raft.ServerAddress, masterA
 }
 
 func waitOneMinute(c chan os.Signal) {
-    timer := time.NewTimer(2*time.Minute)
-    <-timer.C
+    time.Sleep(time.Minute)
     c <- os.Interrupt
 }
 
